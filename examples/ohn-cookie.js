@@ -1,0 +1,117 @@
+// ohn-cookie.js
+/**
+ * Zero-allocation HTTP Cookie parser.
+ * Scans a cookie buffer byte-by-byte and returns pointers to keys and values
+ * to prevent V8 heap fragmentation from string allocations.
+ *
+ * @param {Buffer | Uint8Array} buffer 
+ * @returns {Array<{keyStart: number, keyEnd: number, valStart: number, valEnd: number}>}
+ */
+function scanCookies(buffer) {
+  const results = [];
+  const len = buffer.length;
+  
+  let i = 0;
+  
+  while (i < len) {
+    // 0x20 is Space ' '
+    // Skip leading spaces for the key
+    while (i < len && buffer[i] === 0x20) {
+      i++;
+    }
+    
+    if (i >= len) break;
+    
+    let keyStart = i;
+    
+    // 0x3D is '=', 0x3B is ';'
+    // Scan for '=' or ';'
+    while (i < len && buffer[i] !== 0x3D && buffer[i] !== 0x3B) {
+      i++;
+    }
+    
+    let keyEnd = i;
+    // Trim trailing spaces for the key
+    while (keyEnd > keyStart && buffer[keyEnd - 1] === 0x20) {
+      keyEnd--;
+    }
+    
+    let valStart = -1;
+    let valEnd = -1;
+    
+    if (i < len && buffer[i] === 0x3D) {
+      // Found '=', meaning we have a value to parse
+      i++; // Skip '='
+      
+      // Skip leading spaces for the value
+      while (i < len && buffer[i] === 0x20) {
+        i++;
+      }
+      
+      valStart = i;
+      
+      // Scan for ';' to find end of value
+      while (i < len && buffer[i] !== 0x3B) {
+        i++;
+      }
+      
+      valEnd = i;
+      // Trim trailing spaces for the value
+      while (valEnd > valStart && buffer[valEnd - 1] === 0x20) {
+        valEnd--;
+      }
+    } else {
+      // No '=', meaning it's a key without a value, or we hit a ';'
+      valStart = keyEnd;
+      valEnd = keyEnd;
+    }
+    
+    results.push({ keyStart, keyEnd, valStart, valEnd });
+    
+    // If we stopped at a ';', skip it so the next iteration starts past it
+    if (i < len && buffer[i] === 0x3B) {
+      i++; 
+    }
+  }
+  
+  return results;
+}
+
+/**
+ * Extracts a specific cookie value without allocating strings for other cookies.
+ * 
+ * @param {Buffer | Uint8Array} headerBuffer 
+ * @param {string} keyString 
+ * @returns {string | null}
+ */
+function getCookie(headerBuffer, keyString) {
+  const pointers = scanCookies(headerBuffer);
+  // Pre-compute key buffer once outside the loop for extreme performance
+  const keyBuf = Buffer.from(keyString);
+  const keyLen = keyBuf.length;
+
+  for (let i = 0; i < pointers.length; i++) {
+    const p = pointers[i];
+    const matchLen = p.keyEnd - p.keyStart;
+    
+    // Quick length check before comparing bytes
+    if (matchLen === keyLen) {
+      let isMatch = true;
+      for (let j = 0; j < keyLen; j++) {
+        if (headerBuffer[p.keyStart + j] !== keyBuf[j]) {
+          isMatch = false;
+          break;
+        }
+      }
+      
+      if (isMatch) {
+        if (p.valStart === p.valEnd) return "";
+        return headerBuffer.toString('utf8', p.valStart, p.valEnd);
+      }
+    }
+  }
+
+  return null;
+}
+
+module.exports = { scanCookies, getCookie };

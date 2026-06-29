@@ -60,9 +60,30 @@ function generateUUIDv4() {
   return outBuffer;
 }
 
+const rawBuffer = new Uint8Array(16);
+
+function generateUUIDv4Raw() {
+  fillEntropy();
+
+  for (let i = 0; i < 16; i++) {
+    let byte = pool[poolOffset++];
+    
+    // Apply UUID v4 mandatory bitwise operations
+    if (i === 6) {
+      byte = (byte & 0x0f) | 0x40;
+    } else if (i === 8) {
+      byte = (byte & 0x3f) | 0x80;
+    }
+    rawBuffer[i] = byte;
+  }
+  
+  return rawBuffer;
+}
+
 module.exports = {
   pool,
   outBuffer,
   fillEntropy,
-  generateUUIDv4
+  generateUUIDv4,
+  generateUUIDv4Raw
 };

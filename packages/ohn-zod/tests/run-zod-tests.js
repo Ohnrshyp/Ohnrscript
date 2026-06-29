@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const babel = require('@babel/core');
-const cborPlugin = require('../src/plugins/babel-plugin-cbor-aot');
+const cborPlugin = require('../../../core/src/plugins/babel-plugin-cbor-aot');
 const assert = require('assert');
 
 function transpileFile(filePath) {

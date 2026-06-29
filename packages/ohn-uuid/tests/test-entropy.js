@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { buffer, fillEntropy } = require('./ohn-uuid');
+const { buffer, fillEntropy } = require('../src/ohn-uuid');
 
 console.log('Running UUID v4 entropy math tests...');
 

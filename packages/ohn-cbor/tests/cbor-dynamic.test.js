@@ -1,5 +1,5 @@
 const babel = require('@babel/core');
-const cborPlugin = require('../src/plugins/babel-plugin-cbor-aot');
+const cborPlugin = require('../../../core/src/plugins/babel-plugin-cbor-aot');
 
 function transpile(code) {
   const result = babel.transformSync(code, {

@@ -1,5 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
-const { generateUUIDv4Raw, pool, fillEntropy } = require('../examples/ohn-uuid.js');
+const { generateUUIDv4Raw, pool, fillEntropy } = require('../packages/ohn-uuid/src/ohn-uuid.js');
 
 const BATCH_SIZE = 4096;
 const UUID_LEN = 36;

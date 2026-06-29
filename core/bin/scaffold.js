@@ -29,6 +29,9 @@ function inferType(val) {
   if (Array.isArray(val)) {
     if (val.length > 0) {
       const elType = inferType(val[0]);
+      if (elType === 'number' && val.length > 100) {
+        return `float32[${val.length}]`;
+      }
       return `Array<${elType}>`;
     }
     return 'Array<any>';

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "jest tests/"
+    "test": "jest core/tests/ packages/*/tests/"
   },
   "keywords": [
     "compiler",
@@ -22,7 +22,7 @@
     "url": "https://github.com/ohnrshyp/ohnrscript.git"
   },
   "bin": {
-    "ohnc": "bin/ohnc.js"
+    "ohnc": "core/bin/ohnc.js"
   },
   "dependencies": {
     "@babel/cli": "^7.29.7",

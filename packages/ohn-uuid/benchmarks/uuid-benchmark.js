@@ -1,5 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
-const { generateUUIDv4 } = require('../examples/ohn-uuid.js');
+const { generateUUIDv4 } = require('../src/ohn-uuid.js');
 
 const ITERATIONS = 5_000_000;
 

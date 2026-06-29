@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { getCookie } = require('./ohn-cookie');
+const { getCookie } = require('../src/ohn-cookie');
 
 const dummyHeader = "analytic_1=a; analytic_2=b; analytic_3=c; target_cookie=secret123; analytic_4=d; analytic_5=e; analytic_6=f; empty_cookie=; analytic_7=g; analytic_8=h";
 const headerBuf = Buffer.from(dummyHeader);

@@ -1,4 +1,4 @@
-const { generateUUIDv4 } = require('./ohn-uuid.js');
+const { generateUUIDv4 } = require('../src/ohn-uuid.js');
 
 function runTest() {
   const buf = generateUUIDv4();

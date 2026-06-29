@@ -1,0 +1,12 @@
+// Auto-generated Ohnrscript Schema from vector.json
+@cbor
+class Vector {
+  measurements: Array<number>;
+
+  constructor(measurements) {
+    this.measurements = measurements;
+  }
+}
+
+module.exports = Vector;
+

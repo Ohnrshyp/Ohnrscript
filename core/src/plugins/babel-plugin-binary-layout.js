@@ -61,6 +61,19 @@ module.exports = function({ types: t }) {
               }
             }
 
+            // Also check for TS vector syntax like float32[1536]
+            if (elementPath.node.typeAnnotation && elementPath.node.typeAnnotation.typeAnnotation) {
+              const tsType = elementPath.node.typeAnnotation.typeAnnotation;
+              if (t.isTSIndexedAccessType(tsType)) {
+                if (t.isTSTypeReference(tsType.objectType) && t.isIdentifier(tsType.objectType.typeName)) {
+                  typeName = tsType.objectType.typeName.name;
+                }
+                if (t.isTSLiteralType(tsType.indexType) && t.isNumericLiteral(tsType.indexType.literal)) {
+                  size = tsType.indexType.literal.value;
+                }
+              }
+            }
+
             if (!typeName || !TYPE_SIZES[typeName]) {
               return; // Skip properties without valid @type mapping
             }

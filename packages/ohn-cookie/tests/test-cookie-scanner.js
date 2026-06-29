@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { scanCookies } = require('./ohn-cookie');
+const { scanCookies } = require('../src/ohn-cookie');
 
 const buffer = Buffer.from("session=123; theme=dark; tracking_id=abc");
 const pointers = scanCookies(buffer);

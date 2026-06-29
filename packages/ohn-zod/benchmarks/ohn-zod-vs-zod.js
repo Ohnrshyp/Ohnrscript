@@ -3,7 +3,7 @@ const path = require('path');
 const { z } = require('zod');
 const { decode } = require('cbor-x');
 const babel = require('@babel/core');
-const cborPlugin = require('../src/plugins/babel-plugin-cbor-aot');
+const cborPlugin = require('../../../core/src/plugins/babel-plugin-cbor-aot');
 
 // 1. Compile UserPayload from ohn-zod.test.ohn
 function transpileFile(filePath) {

@@ -1,5 +1,5 @@
 const cookie = require('cookie');
-const { getCookie } = require('../examples/ohn-cookie');
+const { getCookie } = require('../src/ohn-cookie');
 const { performance } = require('perf_hooks');
 
 const ITERATIONS = 2_000_000;

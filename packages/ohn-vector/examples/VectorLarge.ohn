@@ -1,0 +1,12 @@
+// Auto-generated Ohnrscript Schema from vector-large.json
+@cbor
+class VectorLarge {
+  measurements: float32[150];
+
+  constructor(measurements) {
+    this.measurements = measurements;
+  }
+}
+
+module.exports = VectorLarge;
+

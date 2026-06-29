@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { parseFrame } = require('./ohn-ws');
+const { parseFrame } = require('../src/ohn-ws');
 
 // Helper to manually create a masked WS frame for testing
 function createMaskedFrame(text) {

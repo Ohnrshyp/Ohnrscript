@@ -4,8 +4,8 @@ const { z } = require('zod');
 const { decode } = require('cbor-x');
 const { v4: uuidv4 } = require('uuid');
 const babel = require('@babel/core');
-const cborPlugin = require('../src/plugins/babel-plugin-cbor-aot');
-const { generateUUIDv4 } = require('../examples/ohn-uuid.js');
+const cborPlugin = require('../core/src/plugins/babel-plugin-cbor-aot');
+const { generateUUIDv4 } = require('../packages/ohn-uuid/src/ohn-uuid.js');
 
 // 1. Compile UserPayload from ohn-zod.test.ohn
 function transpileFile(filePath) {

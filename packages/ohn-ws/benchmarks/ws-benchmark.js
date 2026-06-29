@@ -1,4 +1,4 @@
-const { parseFrame } = require('../examples/ohn-ws');
+const { parseFrame } = require('../src/ohn-ws');
 const { performance } = require('perf_hooks');
 const ws = require('ws'); 
 

@@ -1,0 +1,29 @@
+{
+  "name": "@ohnrshyp/ohnrscript",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest tests/"
+  },
+  "keywords": ["compiler", "cbor", "aot", "transpiler", "binary", "zero-allocation", "systems"],
+  "author": "Jordan Kugler",
+  "license": "Apache-2.0",
+  "description": "A high-performance domain-specific Javascript dialect for V8 systems programming, featuring AOT CBOR serialization and zero-allocation binary layouts.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ohnrshyp/ohnrscript.git"
+  },
+  "bin": {
+    "ohnc": "bin/ohnc.js"
+  },
+  "dependencies": {
+    "@babel/cli": "^7.29.7",
+    "@babel/core": "^7.29.7",
+    "@babel/preset-env": "^7.29.7",
+    "@babel/preset-typescript": "^7.29.7"
+  },
+  "devDependencies": {
+    "@babel/plugin-syntax-decorators": "^7.29.7",
+    "jest": "^30.4.2"
+  }
+}

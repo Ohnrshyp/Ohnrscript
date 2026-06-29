@@ -1,0 +1,90 @@
+// Auto-generated Ohnrscript Schema from mock-payload.json
+@cbor
+class RegistrationPayload {
+  _v: number;
+  _t: string;
+  title: string;
+  artist: string;
+  duration_ms: number;
+  isrc: string;
+  upc: string;
+  p_line: string;
+  c_line: string;
+  primary_genre: string;
+  secondary_genre: string;
+  language: string;
+  bitrate: number;
+  sample_rate: number;
+  channels: number;
+  format: string;
+  album_title: string;
+  track_number: number;
+  release_date: string;
+  original_release_date: string;
+  label: string;
+  catalog_number: string;
+  version: string;
+  parental_advisory: string;
+  featured_artists: string;
+  composers: string;
+  lyricists: string;
+  writers: string;
+  producers: string;
+  remixer: string;
+  recording_location: string;
+  recording_year: number;
+  iswc: string;
+  territories: string;
+  preview_start_ms: number;
+  owner_id: string;
+  origin_platform: string;
+  origin_timestamp: number;
+  fingerprint_hash: string;
+  fingerprint_raw: string;
+
+  constructor(_v, _t, title, artist, duration_ms, isrc, upc, p_line, c_line, primary_genre, secondary_genre, language, bitrate, sample_rate, channels, format, album_title, track_number, release_date, original_release_date, label, catalog_number, version, parental_advisory, featured_artists, composers, lyricists, writers, producers, remixer, recording_location, recording_year, iswc, territories, preview_start_ms, owner_id, origin_platform, origin_timestamp, fingerprint_hash, fingerprint_raw) {
+    this._v = _v;
+    this._t = _t;
+    this.title = title;
+    this.artist = artist;
+    this.duration_ms = duration_ms;
+    this.isrc = isrc;
+    this.upc = upc;
+    this.p_line = p_line;
+    this.c_line = c_line;
+    this.primary_genre = primary_genre;
+    this.secondary_genre = secondary_genre;
+    this.language = language;
+    this.bitrate = bitrate;
+    this.sample_rate = sample_rate;
+    this.channels = channels;
+    this.format = format;
+    this.album_title = album_title;
+    this.track_number = track_number;
+    this.release_date = release_date;
+    this.original_release_date = original_release_date;
+    this.label = label;
+    this.catalog_number = catalog_number;
+    this.version = version;
+    this.parental_advisory = parental_advisory;
+    this.featured_artists = featured_artists;
+    this.composers = composers;
+    this.lyricists = lyricists;
+    this.writers = writers;
+    this.producers = producers;
+    this.remixer = remixer;
+    this.recording_location = recording_location;
+    this.recording_year = recording_year;
+    this.iswc = iswc;
+    this.territories = territories;
+    this.preview_start_ms = preview_start_ms;
+    this.owner_id = owner_id;
+    this.origin_platform = origin_platform;
+    this.origin_timestamp = origin_timestamp;
+    this.fingerprint_hash = fingerprint_hash;
+    this.fingerprint_raw = fingerprint_raw;
+  }
+}
+
+module.exports = RegistrationPayload;
+

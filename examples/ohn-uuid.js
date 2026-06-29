@@ -1,22 +1,68 @@
 const crypto = require('crypto');
 
-// Globally-scoped, single allocation for cryptographic entropy
-// This avoids V8 garbage collection during UUID generation
-const buffer = new Uint8Array(16);
+// Globally-scoped, single allocation for cryptographic entropy pool
+// Size: 65536 bytes (can serve 4096 UUIDs before refilling)
+const POOL_SIZE = 65536;
+const pool = new Uint8Array(POOL_SIZE);
+let poolOffset = POOL_SIZE;
+
+// Globally-scoped, single allocation for formatted output
+const outBuffer = new Uint8Array(36);
+
+// Static lookup table for ASCII hex characters (0-9, a-f)
+const hexLookup = new Uint8Array([
+  48, 49, 50, 51, 52, 53, 54, 55, 56, 57, // 0-9
+  97, 98, 99, 100, 101, 102               // a-f
+]);
+
+// Hyphen byte code
+const HYPHEN = 0x2d;
+
+// Pre-fill hyphens in outBuffer
+outBuffer[8] = HYPHEN;
+outBuffer[13] = HYPHEN;
+outBuffer[18] = HYPHEN;
+outBuffer[23] = HYPHEN;
 
 function fillEntropy() {
-  // Fill the static buffer with random bytes without allocating a new array
-  crypto.randomFillSync(buffer);
+  if (poolOffset >= POOL_SIZE) {
+    crypto.randomFillSync(pool);
+    poolOffset = 0;
+  }
+}
 
-  // Apply UUID v4 mandatory bitwise operations
-  // Version 4: Set the 4 most significant bits of the 7th byte (index 6) to 0100 (0x40)
-  buffer[6] = (buffer[6] & 0x0f) | 0x40;
-  
-  // Variant 1: Set the 2 most significant bits of the 9th byte (index 8) to 10 (0x80)
-  buffer[8] = (buffer[8] & 0x3f) | 0x80;
+function generateUUIDv4() {
+  fillEntropy();
+
+  // Map 16 bytes of entropy to 36 ASCII bytes in outBuffer
+  let outIndex = 0;
+  for (let i = 0; i < 16; i++) {
+    // Skip hyphen positions
+    if (outIndex === 8 || outIndex === 13 || outIndex === 18 || outIndex === 23) {
+      outIndex++;
+    }
+
+    let byte = pool[poolOffset++];
+    
+    // Apply UUID v4 mandatory bitwise operations
+    if (i === 6) {
+      byte = (byte & 0x0f) | 0x40;
+    } else if (i === 8) {
+      byte = (byte & 0x3f) | 0x80;
+    }
+    
+    // High nibble
+    outBuffer[outIndex++] = hexLookup[byte >> 4];
+    // Low nibble
+    outBuffer[outIndex++] = hexLookup[byte & 0x0f];
+  }
+
+  return outBuffer;
 }
 
 module.exports = {
-  buffer,
-  fillEntropy
+  pool,
+  outBuffer,
+  fillEntropy,
+  generateUUIDv4
 };

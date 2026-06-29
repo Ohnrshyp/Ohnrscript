@@ -5,7 +5,15 @@
   "scripts": {
     "test": "jest tests/"
   },
-  "keywords": ["compiler", "cbor", "aot", "transpiler", "binary", "zero-allocation", "systems"],
+  "keywords": [
+    "compiler",
+    "cbor",
+    "aot",
+    "transpiler",
+    "binary",
+    "zero-allocation",
+    "systems"
+  ],
   "author": "Jordan Kugler",
   "license": "Apache-2.0",
   "description": "A high-performance domain-specific Javascript dialect for V8 systems programming, featuring AOT CBOR serialization and zero-allocation binary layouts.",
@@ -20,7 +28,9 @@
     "@babel/cli": "^7.29.7",
     "@babel/core": "^7.29.7",
     "@babel/preset-env": "^7.29.7",
-    "@babel/preset-typescript": "^7.29.7"
+    "@babel/preset-typescript": "^7.29.7",
+    "cbor-x": "^1.6.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@babel/plugin-syntax-decorators": "^7.29.7",

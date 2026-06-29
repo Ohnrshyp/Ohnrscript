@@ -39,16 +39,20 @@ module.exports = function (babel) {
         // 4. Generate runtime size calculation and serialization code
         const sizeStatements = [];
         const writeStatements = [];
+        const readStatements = [];
 
         // Base size logic
         sizeStatements.push(`let _size = 0;`);
         writeStatements.push(`let _offset = 0;`);
+        readStatements.push(`let _offset = 0;`);
+        readStatements.push(`const obj = new this();`);
 
         // Assuming a CBOR Map representation for the object.
         // Map header: 0xa0 + number of properties (assuming <= 23 for phase 1 sprint)
         const mapHeader = 0xa0 + properties.length;
         sizeStatements.push(`_size += 1; // Map header`);
         writeStatements.push(`buf[_offset++] = ${mapHeader};`);
+        readStatements.push(`_offset++; // Skip Map header`);
 
         for (const prop of properties) {
           // Identify the key name
@@ -68,6 +72,42 @@ module.exports = function (babel) {
           writeStatements.push(`buf[_offset++] = ${0x60 + keyLen};`);
           for (let i = 0; i < keyLen; i++) {
             writeStatements.push(`buf[_offset++] = ${keyName.charCodeAt(i)};`);
+          }
+
+          // Read key skipping
+          readStatements.push(`_offset += ${1 + keyLen}; // Skip Key: ${keyName}`);
+
+          // Extract validation constraints from decorators
+          let min = null;
+          let max = null;
+          let maxLength = null;
+
+          if (prop.decorators) {
+            prop.decorators = prop.decorators.filter(d => {
+              if (t.isCallExpression(d.expression)) {
+                if (t.isIdentifier(d.expression.callee, { name: 'uint32' })) {
+                  const arg = d.expression.arguments[0];
+                  if (t.isObjectExpression(arg)) {
+                    arg.properties.forEach(p => {
+                      if (p.key.name === 'min') min = p.value.value;
+                      if (p.key.name === 'max') max = p.value.value;
+                    });
+                  }
+                  return false; // Strip decorator
+                }
+                if (t.isIdentifier(d.expression.callee, { name: 'string' })) {
+                  const arg = d.expression.arguments[0];
+                  if (t.isObjectExpression(arg)) {
+                    arg.properties.forEach(p => {
+                      if (p.key.name === 'maxLength') maxLength = p.value.value;
+                    });
+                  }
+                  return false; // Strip decorator
+                }
+              }
+              return true;
+            });
+            if (prop.decorators.length === 0) prop.decorators = null;
           }
 
           // Determine value type from TS annotation
@@ -90,6 +130,16 @@ module.exports = function (babel) {
           if (isBoolean) {
             sizeStatements.push(`_size += 1;`);
             writeStatements.push(`buf[_offset++] = this.${keyName} ? 0xf5 : 0xf4;`);
+            readStatements.push(`
+              const tag_${keyName} = buf[_offset++];
+              if (tag_${keyName} === 0xf5) {
+                obj.${keyName} = true;
+              } else if (tag_${keyName} === 0xf4) {
+                obj.${keyName} = false;
+              } else {
+                throw new Error("Validation Error: Expected boolean for property ${keyName}");
+              }
+            `);
           } else if (isNumber) {
             // Encode as 32-bit integer (always using 5 bytes for AOT fixed layout to avoid branching byte-sizes)
             sizeStatements.push(`_size += 5;`);
@@ -109,6 +159,29 @@ module.exports = function (babel) {
                 buf[_offset++] = val_${keyName} & 0xff;
               }
             `);
+            
+            let valChecks = '';
+            if (min !== null || max !== null) {
+              const conds = [];
+              if (min !== null) conds.push(`val_${keyName} < ${min}`);
+              if (max !== null) conds.push(`val_${keyName} > ${max}`);
+              valChecks = `if (${conds.join(' || ')}) throw new Error("Validation Error: boundary check failed for ${keyName}");`;
+            }
+
+            readStatements.push(`
+              const tag_${keyName} = buf[_offset++];
+              let val_${keyName};
+              if (tag_${keyName} === 0x1a) {
+                val_${keyName} = ((buf[_offset++] << 24) | (buf[_offset++] << 16) | (buf[_offset++] << 8) | buf[_offset++]) >>> 0;
+              } else if (tag_${keyName} === 0x3a) {
+                const uval = ((buf[_offset++] << 24) | (buf[_offset++] << 16) | (buf[_offset++] << 8) | buf[_offset++]) >>> 0;
+                val_${keyName} = -uval - 1;
+              } else {
+                throw new Error("Validation Error: Expected 32-bit integer for property ${keyName}");
+              }
+              ${valChecks}
+              obj.${keyName} = val_${keyName};
+            `);
           } else if (isString) {
             sizeStatements.push(`
               const len_${keyName} = this.${keyName}.length;
@@ -125,6 +198,30 @@ module.exports = function (babel) {
               for (let _i = 0; _i < len_${keyName}; _i++) {
                 buf[_offset++] = this.${keyName}.charCodeAt(_i);
               }
+            `);
+            
+            let strValChecks = '';
+            if (maxLength !== null) {
+              strValChecks = `if (strLen_${keyName} > ${maxLength}) throw new Error("Validation Error: string length exceeds max for ${keyName}");`;
+            }
+
+            readStatements.push(`
+              const strTag_${keyName} = buf[_offset++];
+              let strLen_${keyName} = 0;
+              if (strTag_${keyName} >= 0x60 && strTag_${keyName} < 0x78) {
+                strLen_${keyName} = strTag_${keyName} - 0x60;
+              } else if (strTag_${keyName} === 0x78) {
+                strLen_${keyName} = buf[_offset++];
+              } else if (strTag_${keyName} === 0x79) {
+                strLen_${keyName} = (buf[_offset++] << 8) | buf[_offset++];
+              } else if (strTag_${keyName} === 0x7a) {
+                strLen_${keyName} = ((buf[_offset++] << 24) | (buf[_offset++] << 16) | (buf[_offset++] << 8) | buf[_offset++]) >>> 0;
+              } else {
+                throw new Error("Validation Error: Expected string for property ${keyName}");
+              }
+              ${strValChecks}
+              obj.${keyName} = Buffer.from(buf.buffer, buf.byteOffset + _offset, strLen_${keyName}).toString('utf8');
+              _offset += strLen_${keyName};
             `);
           } else if (isArray) {
             sizeStatements.push(`
@@ -159,12 +256,44 @@ module.exports = function (babel) {
                 }
               }
             `);
+            
+            readStatements.push(`
+              const arrTag_${keyName} = buf[_offset++];
+              let arrLen_${keyName} = 0;
+              if (arrTag_${keyName} >= 0x80 && arrTag_${keyName} < 0x98) {
+                arrLen_${keyName} = arrTag_${keyName} - 0x80;
+              } else if (arrTag_${keyName} === 0x98) {
+                arrLen_${keyName} = buf[_offset++];
+              } else if (arrTag_${keyName} === 0x99) {
+                arrLen_${keyName} = (buf[_offset++] << 8) | buf[_offset++];
+              } else if (arrTag_${keyName} === 0x9a) {
+                arrLen_${keyName} = ((buf[_offset++] << 24) | (buf[_offset++] << 16) | (buf[_offset++] << 8) | buf[_offset++]) >>> 0;
+              } else {
+                throw new Error("Validation Error: Expected array for property ${keyName}");
+              }
+              
+              const arr_${keyName} = new Array(arrLen_${keyName});
+              for (let _i = 0; _i < arrLen_${keyName}; _i++) {
+                const tag_elem = buf[_offset++];
+                let val_elem;
+                if (tag_elem === 0x1a) {
+                  val_elem = ((buf[_offset++] << 24) | (buf[_offset++] << 16) | (buf[_offset++] << 8) | buf[_offset++]) >>> 0;
+                } else if (tag_elem === 0x3a) {
+                  const uval = ((buf[_offset++] << 24) | (buf[_offset++] << 16) | (buf[_offset++] << 8) | buf[_offset++]) >>> 0;
+                  val_elem = -uval - 1;
+                } else {
+                  throw new Error("Validation Error: Expected 32-bit integer for array element in ${keyName}");
+                }
+                arr_${keyName}[_i] = val_elem;
+              }
+              obj.${keyName} = arr_${keyName};
+            `);
           } else {
             writeStatements.push(`// Unsupported type for property: ${keyName}`);
           }
         }
 
-        // 5. Inject the compiled toCBOR() method
+        // 5. Inject the compiled toCBOR() method and static fromCBOR() method
         const methodCode = `
           toCBOR() {
             ${sizeStatements.join('\n')}
@@ -174,19 +303,29 @@ module.exports = function (babel) {
           }
         `;
         
-        // Build AST for the injected method
+        const fromCborCode = `
+          static fromCBOR(buf) {
+            ${readStatements.join('\n')}
+            return obj;
+          }
+        `;
+        
+        // Build AST for the injected methods
         let parsedMethod;
+        let parsedFromCbor;
         try {
           // Attempt the cleaner classMethod parser first
           parsedMethod = template.classMethod(methodCode)();
+          parsedFromCbor = template.classMethod(fromCborCode)();
         } catch (e) {
           // Fallback parsing via full class if template.classMethod is missing/fails
-          const classCode = `class __TEMP { ${methodCode} }`;
+          const classCode = `class __TEMP { ${methodCode} ${fromCborCode} }`;
           const classAst = template.statements(classCode)();
           parsedMethod = classAst[0].body.body[0];
+          parsedFromCbor = classAst[0].body.body[1];
         }
 
-        path.node.body.body.push(parsedMethod);
+        path.node.body.body.push(parsedMethod, parsedFromCbor);
       },
     },
   };

@@ -4,6 +4,8 @@
 
 ## Abstract & First Principles Analysis
 
+> *"Web development has been operating at less than 2% of the physical hardware's actual capabilities, entirely because we standardized on text-based parsers."*
+
 Ohnrscript represents a fundamental paradigm shift in web-native language execution. Traditionally, JavaScript/TypeScript environments (like Node.js or Deno running on the V8 engine) rely heavily on the Garbage Collector (GC). When parsing data payloads (JSON, CBOR, WebSockets), traditional runtimes instantiate intermediary strings, deeply nested objects, and arrays on the heap. Once validation (e.g., Zod) runs over these objects, it creates even more intermediary representations. This results in severe "Heap Churn," triggering expensive GC pauses that throttle system throughput.
 
 **The Ohnrscript Solution:** Ohnrscript leverages an Ahead-of-Time (AOT) compiler built on Babel AST manipulation. It intercepts class schema definitions and replaces them with static byte-offset read/write operations targeting raw `Uint8Array` memory buffers. 

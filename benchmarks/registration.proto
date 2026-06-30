@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+message RegistrationPayload {
+  int32 _v = 1;
+  string _t = 2;
+  string title = 3;
+  string artist = 4;
+  int32 duration_ms = 5;
+  string isrc = 6;
+  string upc = 7;
+  string p_line = 8;
+  string c_line = 9;
+  string primary_genre = 10;
+  string secondary_genre = 11;
+  string language = 12;
+  int32 bitrate = 13;
+  int32 sample_rate = 14;
+  int32 channels = 15;
+  string format = 16;
+  string album_title = 17;
+  int32 track_number = 18;
+  string release_date = 19;
+  string original_release_date = 20;
+  string label = 21;
+  string catalog_number = 22;
+  string version = 23;
+  string parental_advisory = 24;
+  string featured_artists = 25;
+  string composers = 26;
+  string lyricists = 27;
+  string writers = 28;
+  string producers = 29;
+  string remixer = 30;
+  string recording_location = 31;
+  int32 recording_year = 32;
+  string iswc = 33;
+  string territories = 34;
+  int32 preview_start_ms = 35;
+  string owner_id = 36;
+  string origin_platform = 37;
+  int64 origin_timestamp = 38;
+  string fingerprint_hash = 39;
+  string fingerprint_raw = 40;
+}

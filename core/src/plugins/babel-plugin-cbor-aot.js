@@ -220,7 +220,7 @@ module.exports = function (babel) {
                 throw new Error("Validation Error: Expected string for property ${keyName}");
               }
               ${strValChecks}
-              obj.${keyName} = Buffer.from(buf.buffer, buf.byteOffset + _offset, strLen_${keyName}).toString('utf8');
+              obj.${keyName} = this._readString(buf, _offset, strLen_${keyName});
               _offset += strLen_${keyName};
             `);
           } else if (isArray) {
@@ -303,6 +303,28 @@ module.exports = function (babel) {
           }
         `;
         
+        const readStringCode = `
+          static _readString(buffer, start, length) {
+            let res = "";
+            let end = start + length;
+            if (end > buffer.length) end = buffer.length; // Safe bounds check
+            while (start < end) {
+              let t = buffer[start++];
+              if (t <= 0x7F) {
+                res += String.fromCharCode(t);
+              } else if (t >= 0xC0 && t < 0xE0) {
+                res += String.fromCharCode((t & 0x1F) << 6 | buffer[start++] & 0x3F);
+              } else if (t >= 0xE0 && t < 0xF0) {
+                res += String.fromCharCode((t & 0xF) << 12 | (buffer[start++] & 0x3F) << 6 | buffer[start++] & 0x3F);
+              } else if (t >= 0xF0) {
+                let t2 = ((t & 7) << 18 | (buffer[start++] & 0x3F) << 12 | (buffer[start++] & 0x3F) << 6 | buffer[start++] & 0x3F) - 0x10000;
+                res += String.fromCharCode(0xD800 + (t2 >> 10), 0xDC00 + (t2 & 0x3FF));
+              }
+            }
+            return res;
+          }
+        `;
+        
         const fromCborCode = `
           static fromCBOR(buf) {
             ${readStatements.join('\n')}
@@ -312,20 +334,23 @@ module.exports = function (babel) {
         
         // Build AST for the injected methods
         let parsedMethod;
+        let parsedReadString;
         let parsedFromCbor;
         try {
           // Attempt the cleaner classMethod parser first
           parsedMethod = template.classMethod(methodCode)();
+          parsedReadString = template.classMethod(readStringCode)();
           parsedFromCbor = template.classMethod(fromCborCode)();
         } catch (e) {
           // Fallback parsing via full class if template.classMethod is missing/fails
-          const classCode = `class __TEMP { ${methodCode} ${fromCborCode} }`;
+          const classCode = `class __TEMP { ${methodCode} ${readStringCode} ${fromCborCode} }`;
           const classAst = template.statements(classCode)();
           parsedMethod = classAst[0].body.body[0];
-          parsedFromCbor = classAst[0].body.body[1];
+          parsedReadString = classAst[0].body.body[1];
+          parsedFromCbor = classAst[0].body.body[2];
         }
 
-        path.node.body.body.push(parsedMethod, parsedFromCbor);
+        path.node.body.body.push(parsedMethod, parsedReadString, parsedFromCbor);
       },
     },
   };

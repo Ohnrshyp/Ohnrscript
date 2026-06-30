@@ -18,7 +18,7 @@ babel.transformAsync(code, {
   parserOpts: {
     plugins: ['typescript']
   },
-  presets: ['@babel/preset-env', '@babel/preset-typescript'],
+  presets: ['@babel/preset-env', ['@babel/preset-typescript', { allExtensions: true }]],
   plugins: [
     ['@babel/plugin-syntax-decorators', { legacy: true }],
     require('../src/plugins/babel-plugin-binary-layout'),

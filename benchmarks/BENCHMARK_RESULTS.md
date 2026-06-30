@@ -223,12 +223,12 @@ When the standard stack processes 2.24 million requests, allocating intermediary
 
 By processing the payload entirely through AOT byte-offsets and never allocating a single object on the heap, Ohnrscript completely bypasses these GC freezes. While its standard p99 latency shifted slightly due to holding a higher overall throughput ceiling, its **p99.99 latency held remarkably steady** at 1,659 ms. It proved that a zero-allocation architecture can hold a steady, predictable latency ceiling while an allocating stack spikes uncontrollably under pressure.
 
-### Protocol Superiority: The Density Limit of JIT Runtimes
-To test the absolute limits of the ecosystem, we fed Ohnrscript’s mathematically optimized payload to the standard Zod stack. Standard frameworks rely on string-keyed dictionaries (Maps) to look up values. Ohnrscript’s AOT compiler bypasses this entirely, generating a hyper-dense, **flattened C-struct array** over the network. 
+### Architectural Trade-off: Schema-Driven vs Generic Decoding
+Ohnrscript’s wire format is heavily optimized for density. Instead of sending string-keyed dictionaries (Maps) over the wire like standard JSON or CBOR, Ohnrscript’s AOT compiler flattens the payload into an ordered array of values (similar to a C-struct). 
 
-When the Standard Stack attempted to process this C-struct payload, it suffered a cascading failure. Unable to map the structure, it threw 1.56 million `400 Bad Request` errors. Generating JavaScript `Error` objects and stack traces on the heap caused a catastrophic **10.2-second GC freeze**. 
+**The Trade-off:** Ohnrscript's wire format is not a drop-in for generic CBOR/JSON parsers. If a consumer attempts to parse an Ohnrscript payload using a generic library without the corresponding schema, they will receive an array of values rather than a key-value map.
 
-This definitively proves that Ohnrscript doesn't just parse faster—it generates a network protocol so dense that legacy JIT-compiled frameworks are physically incapable of ingesting it without triggering cascading memory failures.
+We consider this strict format incompatibility a necessary and highly advantageous trade-off. By eliminating string keys from the payload entirely, we drastically reduce network bandwidth, eliminate string allocation during parsing, and force the consuming client to use a compiled AOT reader, guaranteeing end-to-end memory safety and zero-allocation speeds.
 
 ---
 

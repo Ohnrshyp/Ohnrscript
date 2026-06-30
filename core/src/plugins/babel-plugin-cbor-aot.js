@@ -48,11 +48,31 @@ module.exports = function (babel) {
         readStatements.push(`const obj = new this();`);
 
         // Assuming a CBOR Map representation for the object.
-        // Map header: 0xa0 + number of properties (assuming <= 23 for phase 1 sprint)
-        const mapHeader = 0xa0 + properties.length;
-        sizeStatements.push(`_size += 1; // Map header`);
-        writeStatements.push(`buf[_offset++] = ${mapHeader};`);
-        readStatements.push(`_offset++; // Skip Map header`);
+        const propLen = properties.length;
+        if (propLen < 24) {
+          sizeStatements.push(`_size += 1; // Map header`);
+          writeStatements.push(`buf[_offset++] = ${0xa0 + propLen};`);
+          readStatements.push(`_offset += 1; // Skip Map header`);
+        } else if (propLen <= 0xff) {
+          sizeStatements.push(`_size += 2; // Map header`);
+          writeStatements.push(`buf[_offset++] = 0xb8;`);
+          writeStatements.push(`buf[_offset++] = ${propLen};`);
+          readStatements.push(`_offset += 2; // Skip Map header`);
+        } else if (propLen <= 0xffff) {
+          sizeStatements.push(`_size += 3; // Map header`);
+          writeStatements.push(`buf[_offset++] = 0xb9;`);
+          writeStatements.push(`buf[_offset++] = ${propLen >> 8};`);
+          writeStatements.push(`buf[_offset++] = ${propLen & 0xff};`);
+          readStatements.push(`_offset += 3; // Skip Map header`);
+        } else {
+          sizeStatements.push(`_size += 5; // Map header`);
+          writeStatements.push(`buf[_offset++] = 0xba;`);
+          writeStatements.push(`buf[_offset++] = ${(propLen >>> 24) & 0xff};`);
+          writeStatements.push(`buf[_offset++] = ${(propLen >>> 16) & 0xff};`);
+          writeStatements.push(`buf[_offset++] = ${(propLen >>> 8) & 0xff};`);
+          writeStatements.push(`buf[_offset++] = ${propLen & 0xff};`);
+          readStatements.push(`_offset += 5; // Skip Map header`);
+        }
 
         for (const prop of properties) {
           // Identify the key name

@@ -164,6 +164,9 @@ module.exports = function (babel) {
             // Encode as 32-bit integer (always using 5 bytes for AOT fixed layout to avoid branching byte-sizes)
             sizeStatements.push(`_size += 5;`);
             writeStatements.push(`
+              if (!Number.isInteger(this.${keyName}) || this.${keyName} < -2147483648 || this.${keyName} > 2147483647) {
+                throw new Error("Validation Error: Expected 32-bit integer for property ${keyName}");
+              }
               if (this.${keyName} >= 0) {
                 buf[_offset++] = 0x1a;
                 buf[_offset++] = (this.${keyName} >>> 24) & 0xff;

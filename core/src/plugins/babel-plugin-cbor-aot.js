@@ -328,7 +328,7 @@ module.exports = function (babel) {
           static _readString(buffer, start, length) {
             let res = "";
             let end = start + length;
-            if (end > buffer.length) end = buffer.length; // Safe bounds check
+            if (end > buffer.length) throw new Error("Validation Error: Unexpected end of buffer during string decode");
             while (start < end) {
               let t = buffer[start++];
               if (t <= 0x7F) {

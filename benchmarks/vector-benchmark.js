@@ -1,4 +1,4 @@
-const { mapVector } = require('../packages/ohn-vector/examples/ohn-vector');
+const { mapVector } = require('../packages/ohn-vector/src/ohn-vector');
 
 const ITERATIONS = 100_000;
 const VECTOR_SIZE = 1536; // OpenAI embeddings size

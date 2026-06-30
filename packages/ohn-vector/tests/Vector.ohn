@@ -1,7 +1,7 @@
 // Auto-generated Ohnrscript Schema from vector.json
 @cbor
 class Vector {
-  measurements: Array<number>;
+  measurements: float32[150];
 
   constructor(measurements) {
     this.measurements = measurements;

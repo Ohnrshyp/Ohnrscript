@@ -22,7 +22,7 @@ function transpileFile(filePath) {
   return result.code;
 }
 
-const targetFile = path.join(__dirname, '../tests/ohn-zod.test.ohn');
+const targetFile = path.join(__dirname, '../packages/ohn-zod/tests/ohn-zod.test.ohn');
 const outputCode = transpileFile(targetFile);
 
 const UserPayload = eval(`

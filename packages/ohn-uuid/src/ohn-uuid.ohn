@@ -4,21 +4,21 @@ const crypto = require('crypto');
 
 // Globally-scoped, single allocation for cryptographic entropy pool
 // Size: 65536 bytes (can serve 4096 UUIDs before refilling)
-const POOL_SIZE = 65536;
-const pool = new Uint8Array(POOL_SIZE);
-let poolOffset = POOL_SIZE;
+const POOL_SIZE: number = 65536;
+const pool: Uint8Array = new Uint8Array(POOL_SIZE);
+let poolOffset: number = POOL_SIZE;
 
 // Globally-scoped, single allocation for formatted output
-const outBuffer = new Uint8Array(36);
+const outBuffer: Uint8Array = new Uint8Array(36);
 
 // Static lookup table for ASCII hex characters (0-9, a-f)
-const hexLookup = new Uint8Array([
+const hexLookup: Uint8Array = new Uint8Array([
   48, 49, 50, 51, 52, 53, 54, 55, 56, 57, // 0-9
   97, 98, 99, 100, 101, 102               // a-f
 ]);
 
 // Hyphen byte code
-const HYPHEN = 0x2d;
+const HYPHEN: number = 0x2d;
 
 // Pre-fill hyphens in outBuffer
 outBuffer[8] = HYPHEN;
@@ -26,14 +26,14 @@ outBuffer[13] = HYPHEN;
 outBuffer[18] = HYPHEN;
 outBuffer[23] = HYPHEN;
 
-function fillEntropy() {
+function fillEntropy(): void {
   if (poolOffset >= POOL_SIZE) {
     crypto.randomFillSync(pool);
     poolOffset = 0;
   }
 }
 
-function generateUUIDv4() {
+function generateUUIDv4(): Uint8Array {
   fillEntropy();
 
   // Map 16 bytes of entropy to 36 ASCII bytes in outBuffer
@@ -62,9 +62,9 @@ function generateUUIDv4() {
   return outBuffer;
 }
 
-const rawBuffer = new Uint8Array(16);
+const rawBuffer: Uint8Array = new Uint8Array(16);
 
-function generateUUIDv4Raw() {
+function generateUUIDv4Raw(): Uint8Array {
   fillEntropy();
 
   for (let i = 0; i < 16; i++) {

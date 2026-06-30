@@ -1,14 +1,16 @@
 // Auto-migrated to Ohnrscript from ohn-ws.js
 
-/**
- * Zero-allocation WebSocket frame parser.
- * Mutates the incoming buffer in-place to unmask the payload, completely bypassing 
- * V8 Buffer allocation and garbage collection.
- *
- * @param {Buffer} buffer - The raw TCP chunk representing the WS frame.
- * @returns {Object|null} Pointers to the unmasked payload and frame metadata.
- */
-function parseFrame(buffer) {
+type WSFrame = {
+  fin: boolean;
+  opcode: number;
+  payloadStart: number;
+  payloadLength: number;
+};
+
+// Zero-allocation WebSocket frame parser.
+// Mutates the incoming buffer in-place to unmask the payload, completely bypassing 
+// V8 Buffer allocation and garbage collection.
+function parseFrame(buffer: Buffer): WSFrame | null {
   if (buffer.length < 2) return null; // Incomplete frame
 
   const byte0 = buffer[0];
@@ -60,4 +62,3 @@ function parseFrame(buffer) {
 }
 
 module.exports = { parseFrame };
-

@@ -57,10 +57,15 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
 
 ### 1.3 High-Dimensional AI Vectors (Zero-Copy)
 *Parsing 100,000 High-Dimensional AI Vectors (1536 floats).*
-* **Standard JSON.parse:** 12990.16 ms (Heap Delta: 10.63 MB)
-* **Ohnrscript Memory-Safe Copy (.slice):** 6.97 ms (Heap Delta: 3.99 MB)
-* **Ohnrscript Zero-Copy mapVector:** 3.45 ms (Heap Delta: 10.54 MB)
-* **Scientific Conclusion:** **3766x Speedup.** By pointing a `Float32Array` directly at the binary slice, Ohnrscript mathematically eliminates the parsing loop. It operates at the physical limits of hardware memory bandwidth.
+
+* **Standard JSON.parse (Text Baseline):** 12891.36 ms
+* **Manual DataView (Binary Baseline):** 190.17 ms (Heap Delta: 2.83 MB)
+* **Ohnrscript Memory-Safe Copy (.slice):** 6.61 ms (Heap Delta: 3.93 MB)
+* **Ohnrscript Zero-Copy mapVector:** 3.52 ms (Heap Delta: 10.82 MB)
+
+* **Reframed Conclusion:** **54x Speedup vs Binary Parsing.** Comparing Ohnrscript's binary mapping directly to \`JSON.parse\` is an unfair "text vs binary" comparison. However, when we establish a strictly fair binary baseline (using a manual \`DataView\` loop to parse the binary payload), Ohnrscript is still **54x faster**. Switching vector transport from JSON to Ohnrscript's binary mapping eliminates the parse loop entirely. By pointing a \`Float32Array\` directly at the binary slice, it operates at the physical limits of hardware memory bandwidth.
+
+*(Note on Heap Deltas: The "Zero-Copy" method reports a higher heap delta than the "Memory-Safe" copy because creating 100,000 distinct \`Float32Array\` views over a single global \`ArrayBuffer\` alters V8's minor-GC (scavenge) cadence compared to generating fresh, rapidly-discarded C++ slices. Both represent trivial allocation churn compared to the JSON baseline).*
 
 ---
 

@@ -29,8 +29,12 @@
     "@babel/core": "^7.29.7",
     "@babel/preset-env": "^7.29.7",
     "@babel/preset-typescript": "^7.29.7",
+    "autocannon": "^8.0.0",
+    "cbor": "^10.0.12",
     "cbor-x": "^1.6.4",
     "cookie": "^2.0.0",
+    "google-protobuf": "^4.0.2",
+    "protobufjs": "^8.6.5",
     "uuid": "^14.0.1",
     "ws": "^8.21.0",
     "zod": "^4.4.3"

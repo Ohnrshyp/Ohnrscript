@@ -13,6 +13,14 @@ Ohnrscript represents a fundamental paradigm shift in web-native language execut
 
 This document serves as the definitive proof of these performance gains across both macro-architectural pipelines and micro-package libraries. All benchmarks were executed with `--expose-gc` explicitly invoked to track accurate heap deltas.
 
+### Design Philosophy: Compiled Protocol vs Document Parser
+
+Ohnrscript is not a schemaless document parser; it is a **compiled schema validation protocol** that happens to use CBOR as its wire format. In traditional parsers, checking if a number is a 1-byte integer or an 8-byte float requires dynamic branching and object allocation at runtime. We eliminate that overhead entirely.
+
+By annotating a property as a \`number\`, the developer is establishing a strict \`int32\` contract. The AOT compiler bakes that 5-byte fixed contract directly into a branchless byte-offset loop. If the payload violates that contract (e.g., trying to pass a float or overflowing the 32-bit boundary), Ohnrscript intentionally throws a validation error rather than silently corrupting it.
+
+If a developer specifically needs 64-bit floats, they would use an explicit schema annotation like \`@type('float64')\`, which the compiler would unroll into a fixed 9-byte float validation block. We trade dynamic flexibility for physical memory-bandwidth speeds.
+
 ---
 
 ## 1. Global Macro-Architecture Benchmarks

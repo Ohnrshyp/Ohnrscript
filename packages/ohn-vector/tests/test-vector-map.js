@@ -1,4 +1,4 @@
-const { mapVector } = require('./ohn-vector');
+const { mapVector } = require('../src/ohn-vector');
 
 // Create a Float32Array with 10 random floats
 const originalFloats = new Float32Array(10);

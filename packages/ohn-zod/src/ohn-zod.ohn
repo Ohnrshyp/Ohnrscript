@@ -1,0 +1,44 @@
+// ohn-zod.ohn
+// Official Ohnrscript Standard Library Package
+// Zero-allocation Ahead-Of-Time validation decorators.
+
+export type UInt32Validation = {
+  min?: number;
+  max?: number;
+};
+
+export type StringValidation = {
+  maxLength?: number;
+};
+
+export type PropertyDecorator = (target: Object, propertyKey: string | symbol) => void;
+
+/**
+ * Marks a class for CBOR Ahead-of-Time serialization.
+ * Stripped by Ohnrscript compiler at build time.
+ */
+function cbor(target: any): void {
+  // AOT Compiler removes this
+}
+
+/**
+ * Validates a 32-bit unsigned integer property.
+ * Stripped by Ohnrscript compiler at build time.
+ */
+function uint32(rules?: UInt32Validation): PropertyDecorator {
+  return function(target: Object, propertyKey: string | symbol) {
+    // AOT Compiler removes this
+  };
+}
+
+/**
+ * Validates a string property.
+ * Stripped by Ohnrscript compiler at build time.
+ */
+function string(rules?: StringValidation): PropertyDecorator {
+  return function(target: Object, propertyKey: string | symbol) {
+    // AOT Compiler removes this
+  };
+}
+
+module.exports = { cbor, uint32, string };

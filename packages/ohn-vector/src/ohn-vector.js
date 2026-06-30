@@ -1,10 +1,12 @@
 "use strict";
 
+// ohn-vector.ohn
+// Official Ohnrscript Standard Library Package
+// Zero-allocation Float32 Vector mapping.
+
 /**
  * Zero-allocation view over a raw binary Float32 Buffer.
- * 
- * @param {Buffer} buffer - A raw Node.js Buffer containing Float32 Little-Endian data
- * @returns {Float32Array} - A zero-copy view of the same memory
+ * Bypasses V8 garbage collection by mapping directly to memory.
  */
 function mapVector(buffer) {
   // A Node Buffer's .buffer property is the underlying ArrayBuffer

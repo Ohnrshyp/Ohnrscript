@@ -184,7 +184,7 @@ module.exports = function (babel) {
             `);
           } else if (isString) {
             sizeStatements.push(`
-              const len_${keyName} = this.${keyName}.length;
+              const len_${keyName} = this.constructor._utf8ByteLength(this.${keyName});
               if (len_${keyName} < 24) { _size += 1 + len_${keyName}; }
               else if (len_${keyName} <= 0xff) { _size += 2 + len_${keyName}; }
               else if (len_${keyName} <= 0xffff) { _size += 3 + len_${keyName}; }
@@ -195,9 +195,7 @@ module.exports = function (babel) {
               else if (len_${keyName} <= 0xff) { buf[_offset++] = 0x78; buf[_offset++] = len_${keyName}; }
               else if (len_${keyName} <= 0xffff) { buf[_offset++] = 0x79; buf[_offset++] = (len_${keyName} >>> 8) & 0xff; buf[_offset++] = len_${keyName} & 0xff; }
               else { buf[_offset++] = 0x7a; buf[_offset++] = (len_${keyName} >>> 24) & 0xff; buf[_offset++] = (len_${keyName} >>> 16) & 0xff; buf[_offset++] = (len_${keyName} >>> 8) & 0xff; buf[_offset++] = len_${keyName} & 0xff; }
-              for (let _i = 0; _i < len_${keyName}; _i++) {
-                buf[_offset++] = this.${keyName}.charCodeAt(_i);
-              }
+              _offset += this.constructor._writeString(this.${keyName}, buf, _offset);
             `);
             
             let strValChecks = '';
@@ -325,6 +323,50 @@ module.exports = function (babel) {
           }
         `;
         
+        const utf8ByteLengthCode = `
+          static _utf8ByteLength(str) {
+            let len = 0;
+            for (let i = 0; i < str.length; i++) {
+              let c = str.charCodeAt(i);
+              if (c < 0x80) len += 1;
+              else if (c < 0x800) len += 2;
+              else if (c >= 0xd800 && c < 0xe000) {
+                len += 4; i++;
+              }
+              else len += 3;
+            }
+            return len;
+          }
+        `;
+
+        const writeStringCode = `
+          static _writeString(str, buf, offset) {
+            let start = offset;
+            for (let i = 0; i < str.length; i++) {
+              let c = str.charCodeAt(i);
+              if (c < 0x80) {
+                buf[offset++] = c;
+              } else if (c < 0x800) {
+                buf[offset++] = 0xc0 | (c >> 6);
+                buf[offset++] = 0x80 | (c & 0x3f);
+              } else if (c >= 0xd800 && c < 0xe000) {
+                let c2 = str.charCodeAt(i + 1);
+                c = 0x10000 + (((c & 0x3ff) << 10) | (c2 & 0x3ff));
+                i++;
+                buf[offset++] = 0xf0 | (c >> 18);
+                buf[offset++] = 0x80 | ((c >> 12) & 0x3f);
+                buf[offset++] = 0x80 | ((c >> 6) & 0x3f);
+                buf[offset++] = 0x80 | (c & 0x3f);
+              } else {
+                buf[offset++] = 0xe0 | (c >> 12);
+                buf[offset++] = 0x80 | ((c >> 6) & 0x3f);
+                buf[offset++] = 0x80 | (c & 0x3f);
+              }
+            }
+            return offset - start;
+          }
+        `;
+
         const fromCborCode = `
           static fromCBOR(buf) {
             ${readStatements.join('\n')}
@@ -335,22 +377,28 @@ module.exports = function (babel) {
         // Build AST for the injected methods
         let parsedMethod;
         let parsedReadString;
+        let parsedUtf8ByteLength;
+        let parsedWriteString;
         let parsedFromCbor;
         try {
           // Attempt the cleaner classMethod parser first
           parsedMethod = template.classMethod(methodCode)();
           parsedReadString = template.classMethod(readStringCode)();
+          parsedUtf8ByteLength = template.classMethod(utf8ByteLengthCode)();
+          parsedWriteString = template.classMethod(writeStringCode)();
           parsedFromCbor = template.classMethod(fromCborCode)();
         } catch (e) {
           // Fallback parsing via full class if template.classMethod is missing/fails
-          const classCode = `class __TEMP { ${methodCode} ${readStringCode} ${fromCborCode} }`;
+          const classCode = `class __TEMP { ${methodCode} ${readStringCode} ${utf8ByteLengthCode} ${writeStringCode} ${fromCborCode} }`;
           const classAst = template.statements(classCode)();
           parsedMethod = classAst[0].body.body[0];
           parsedReadString = classAst[0].body.body[1];
-          parsedFromCbor = classAst[0].body.body[2];
+          parsedUtf8ByteLength = classAst[0].body.body[2];
+          parsedWriteString = classAst[0].body.body[3];
+          parsedFromCbor = classAst[0].body.body[4];
         }
 
-        path.node.body.body.push(parsedMethod, parsedReadString, parsedFromCbor);
+        path.node.body.body.push(parsedMethod, parsedReadString, parsedUtf8ByteLength, parsedWriteString, parsedFromCbor);
       },
     },
   };

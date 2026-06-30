@@ -353,8 +353,21 @@ module.exports = function (babel) {
               let c = str.charCodeAt(i);
               if (c < 0x80) len += 1;
               else if (c < 0x800) len += 2;
-              else if (c >= 0xd800 && c < 0xe000) {
-                len += 4; i++;
+              else if (c >= 0xd800 && c < 0xdc00) {
+                // High surrogate
+                if (i + 1 < str.length) {
+                  let c2 = str.charCodeAt(i + 1);
+                  if (c2 >= 0xdc00 && c2 < 0xe000) {
+                    len += 4; i++;
+                    continue;
+                  }
+                }
+                // Unpaired high surrogate -> U+FFFD
+                len += 3;
+              }
+              else if (c >= 0xdc00 && c < 0xe000) {
+                // Unpaired low surrogate -> U+FFFD
+                len += 3;
               }
               else len += 3;
             }
@@ -372,14 +385,28 @@ module.exports = function (babel) {
               } else if (c < 0x800) {
                 buf[offset++] = 0xc0 | (c >> 6);
                 buf[offset++] = 0x80 | (c & 0x3f);
-              } else if (c >= 0xd800 && c < 0xe000) {
-                let c2 = str.charCodeAt(i + 1);
-                c = 0x10000 + (((c & 0x3ff) << 10) | (c2 & 0x3ff));
-                i++;
-                buf[offset++] = 0xf0 | (c >> 18);
-                buf[offset++] = 0x80 | ((c >> 12) & 0x3f);
-                buf[offset++] = 0x80 | ((c >> 6) & 0x3f);
-                buf[offset++] = 0x80 | (c & 0x3f);
+              } else if (c >= 0xd800 && c < 0xdc00) {
+                // High surrogate
+                let valid = false;
+                if (i + 1 < str.length) {
+                  let c2 = str.charCodeAt(i + 1);
+                  if (c2 >= 0xdc00 && c2 < 0xe000) {
+                    c = 0x10000 + (((c & 0x3ff) << 10) | (c2 & 0x3ff));
+                    i++;
+                    buf[offset++] = 0xf0 | (c >> 18);
+                    buf[offset++] = 0x80 | ((c >> 12) & 0x3f);
+                    buf[offset++] = 0x80 | ((c >> 6) & 0x3f);
+                    buf[offset++] = 0x80 | (c & 0x3f);
+                    valid = true;
+                  }
+                }
+                if (!valid) {
+                  // Unpaired high surrogate -> U+FFFD
+                  buf[offset++] = 0xef; buf[offset++] = 0xbf; buf[offset++] = 0xbd;
+                }
+              } else if (c >= 0xdc00 && c < 0xe000) {
+                // Unpaired low surrogate -> U+FFFD
+                buf[offset++] = 0xef; buf[offset++] = 0xbf; buf[offset++] = 0xbd;
               } else {
                 buf[offset++] = 0xe0 | (c >> 12);
                 buf[offset++] = 0x80 | ((c >> 6) & 0x3f);

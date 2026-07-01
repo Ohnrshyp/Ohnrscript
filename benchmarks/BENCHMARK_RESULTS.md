@@ -323,8 +323,23 @@ Node.js runs on a single-threaded event loop. Because the 2,730 ms benchmark rep
 
 However, **Garbage Collection (GC) is not statistical noise**. If a framework allocates objects on the heap, those objects eventually trigger a "stop-the-world" GC sweep, pausing the event loop for 50-200 milliseconds. As concurrency scales, these GC pauses cascade, causing massive latency spikes and server crashes.
 
-By designing a framework that achieves **zero memory heap allocation** (0.00 MB), Ohnrscript completely eliminates GC overhead natively in JavaScript, solving the single biggest scalability bottleneck in Node.js architectures. 
+### The Developer Experience (DX) Paradigm
+Protobuf was built by Google specifically to solve this exact zero-allocation problem across massive distributed systems. However, to achieve Protobuf's performance in Node.js, engineering teams are forced to:
+1. Stop writing JavaScript.
+2. Learn a completely different domain-specific language (DSL) to write `.proto` schema files.
+3. Install external C++ build tools and Protobuf compilers on their machines.
+4. Run a separate compilation step that generates thousands of lines of unreadable, machine-generated boilerplate code into the repository.
+5. Struggle to map TypeScript types correctly to the generated bindings.
 
-Protobuf was built by Google specifically to solve this exact zero-allocation problem across massive distributed systems, requiring developers to learn `.proto` schemas and set up complex external build pipelines. There are currently no native JavaScript frameworks that can achieve this without an external DSL. When evaluated under strict child-process isolation and proper zero-escape variable scoping, Ohnrscript achieved that exact same zero-allocation, GC-free execution natively within the JavaScript family, using standard classes and decorators. 
+**Ohnrscript achieves this identical, zero-allocation C-level density entirely natively within the language.** 
+Developers simply write a standard, ergonomic JavaScript class using native decorators:
 
-While `protobufjs` is currently faster at raw string-decoding due to its bespoke varint-length architecture, the benchmarks definitively prove that **Ohnrscript belongs in the heavyweight class of AOT serialization protocols.** It has successfully replaced dynamic serialization libraries, eradicated the V8 allocation tax, and delivers Protobuf-level architecture natively to JavaScript.
+```javascript
+@cbor
+class User {
+  id: number = 0;
+  name: string = "";
+}
+```
+
+The Babel plugin seamlessly intercepts this during the normal build process (like Webpack or Vite) and mathematically fuses the C-struct logic directly into the V8 engine. While `protobufjs` is currently faster at raw string-decoding due to its bespoke varint-length architecture, the benchmarks definitively prove that **Ohnrscript belongs in the heavyweight class of AOT serialization protocols.** It delivers Protobuf-level architecture and physical memory limits without ever forcing developers to leave the comfort and native tooling of standard JavaScript.

@@ -9,21 +9,90 @@
 // ============================================================
 // Token Type Enums (strict integer constants)
 // ============================================================
+
+// --- Atoms ---
 const TOKEN_EOF         = 0;
 const TOKEN_IDENTIFIER  = 1;
 const TOKEN_NUMBER      = 2;
 const TOKEN_STRING      = 3;
+
+// --- Keywords ---
 const TOKEN_CONST       = 10;
 const TOKEN_LET         = 11;
 const TOKEN_VAR         = 12;
-const TOKEN_ASSIGN      = 20;  // =
-const TOKEN_DOT         = 21;  // .
-const TOKEN_LPAREN      = 22;  // (
-const TOKEN_RPAREN      = 23;  // )
-const TOKEN_SEMICOLON   = 24;  // ;
-const TOKEN_COMMA       = 25;  // ,
-const TOKEN_LBRACE      = 26;  // {
-const TOKEN_RBRACE      = 27;  // }
+const TOKEN_FUNCTION    = 13;
+const TOKEN_IF          = 14;
+const TOKEN_ELSE        = 15;
+const TOKEN_WHILE       = 16;
+const TOKEN_FOR         = 17;
+const TOKEN_RETURN      = 18;
+const TOKEN_NEW         = 19;
+const TOKEN_THROW       = 20;
+const TOKEN_CONTINUE    = 21;
+const TOKEN_BREAK       = 22;
+const TOKEN_CLASS       = 23;
+const TOKEN_TRUE        = 24;
+const TOKEN_FALSE       = 25;
+const TOKEN_NULL        = 26;
+const TOKEN_UNDEFINED   = 27;
+const TOKEN_TYPEOF      = 28;
+const TOKEN_THIS        = 29;
+
+// --- Single-character punctuation ---
+const TOKEN_ASSIGN      = 40;  // =
+const TOKEN_DOT         = 41;  // .
+const TOKEN_LPAREN      = 42;  // (
+const TOKEN_RPAREN      = 43;  // )
+const TOKEN_SEMICOLON   = 44;  // ;
+const TOKEN_COMMA       = 45;  // ,
+const TOKEN_LBRACE      = 46;  // {
+const TOKEN_RBRACE      = 47;  // }
+const TOKEN_LBRACKET    = 48;  // [
+const TOKEN_RBRACKET    = 49;  // ]
+const TOKEN_COLON       = 50;  // :
+const TOKEN_QUESTION    = 51;  // ?
+
+// --- Comparison operators ---
+const TOKEN_STRICT_EQ   = 60;  // ===
+const TOKEN_STRICT_NEQ  = 61;  // !==
+const TOKEN_LT          = 62;  // <
+const TOKEN_GT          = 63;  // >
+const TOKEN_LTE         = 64;  // <=
+const TOKEN_GTE         = 65;  // >=
+
+// --- Arithmetic operators ---
+const TOKEN_PLUS        = 70;  // +
+const TOKEN_MINUS       = 71;  // -
+const TOKEN_MUL         = 72;  // *
+const TOKEN_DIV         = 73;  // /
+const TOKEN_MOD         = 74;  // %
+
+// --- Bitwise operators ---
+const TOKEN_BIT_OR      = 80;  // |
+const TOKEN_BIT_XOR     = 81;  // ^
+const TOKEN_BIT_AND     = 82;  // &
+const TOKEN_LSHIFT      = 83;  // <<
+const TOKEN_RSHIFT      = 84;  // >>
+const TOKEN_URSHIFT     = 85;  // >>>
+
+// --- Logical operators ---
+const TOKEN_LOGICAL_NOT = 90;  // !
+const TOKEN_LOGICAL_OR  = 91;  // ||
+const TOKEN_LOGICAL_AND = 92;  // &&
+
+// --- Assignment operators ---
+const TOKEN_PLUS_ASSIGN  = 100;  // +=
+const TOKEN_MINUS_ASSIGN = 101;  // -=
+const TOKEN_MUL_ASSIGN   = 102;  // *=
+const TOKEN_DIV_ASSIGN   = 103;  // /=
+const TOKEN_MOD_ASSIGN   = 104;  // %=
+const TOKEN_OR_ASSIGN    = 105;  // |=
+const TOKEN_AND_ASSIGN   = 106;  // &=
+const TOKEN_XOR_ASSIGN   = 107;  // ^=
+
+// --- Update operators ---
+const TOKEN_INCREMENT   = 110;  // ++
+const TOKEN_DECREMENT   = 111;  // --
 
 // ============================================================
 // ASCII Byte Constants (avoids magic numbers)
@@ -32,29 +101,40 @@ const CH_TAB       = 9;
 const CH_LF        = 10;
 const CH_CR        = 13;
 const CH_SPACE     = 32;
+const CH_BANG      = 33;  // !
 const CH_DQUOTE    = 34;  // "
+const CH_PERCENT   = 37;  // %
+const CH_AMP       = 38;  // &
 const CH_SQUOTE    = 39;  // '
 const CH_LPAREN    = 40;  // (
 const CH_RPAREN    = 41;  // )
+const CH_STAR      = 42;  // *
+const CH_PLUS      = 43;  // +
 const CH_COMMA     = 44;  // ,
+const CH_MINUS     = 45;  // -
 const CH_DOT       = 46;  // .
 const CH_SLASH     = 47;  // /
 const CH_0         = 48;
 const CH_9         = 57;
+const CH_COLON     = 58;  // :
 const CH_SEMICOLON = 59;  // ;
+const CH_LT        = 60;  // <
 const CH_EQUALS    = 61;  // =
+const CH_GT        = 62;  // >
+const CH_QUESTION  = 63;  // ?
 const CH_A_UPPER   = 65;
 const CH_Z_UPPER   = 90;
-const CH_LBRACE    = 123; // {
-const CH_RBRACE    = 125; // }
+const CH_LBRACKET  = 91;  // [
+const CH_BACKSLASH = 92;  // \.
+const CH_RBRACKET  = 93;  // ]
+const CH_CARET     = 94;  // ^
 const CH_UNDERSCORE = 95; // _
 const CH_a         = 97;
 const CH_z         = 122;
+const CH_LBRACE    = 123; // {
+const CH_PIPE      = 124; // |
+const CH_RBRACE    = 125; // }
 const CH_DOLLAR    = 36;  // $
-const CH_BACKSLASH = 92;  // \
-const CH_n_LOWER   = 110; // n
-const CH_t_LOWER   = 116; // t
-const CH_r_LOWER   = 114; // r
 
 // ============================================================
 // Lexer Register File — new Int32Array(6)
@@ -137,10 +217,10 @@ function skip_whitespace_and_comments() {
         }
 
         // Multi-line comment: /* ... */
-        if (ch === CH_SLASH && cursor + 1 < source_length && (source[(cursor + 1) | 0] | 0) === 42) { // 42 = *
+        if (ch === CH_SLASH && cursor + 1 < source_length && (source[(cursor + 1) | 0] | 0) === CH_STAR) {
             cursor = (cursor + 2) | 0;
             while (cursor + 1 < source_length) {
-                if ((source[cursor] | 0) === 42 && (source[(cursor + 1) | 0] | 0) === CH_SLASH) {
+                if ((source[cursor] | 0) === CH_STAR && (source[(cursor + 1) | 0] | 0) === CH_SLASH) {
                     cursor = (cursor + 2) | 0;
                     break;
                 }
@@ -154,76 +234,285 @@ function skip_whitespace_and_comments() {
 }
 
 // ============================================================
+// emit_token() — Helper to write token into a register triple
+// ============================================================
+function emit_token(typeSlot, startSlot, lengthSlot, type, start, length) {
+    lex_register[typeSlot]   = type | 0;
+    lex_register[startSlot]  = start | 0;
+    lex_register[lengthSlot] = length | 0;
+}
+
+// ============================================================
 // scan_token() — Scan the next token, write directly into registers
 // ============================================================
 function scan_token(typeSlot, startSlot, lengthSlot) {
     skip_whitespace_and_comments();
 
     if (cursor >= source_length) {
-        lex_register[typeSlot]   = TOKEN_EOF;
-        lex_register[startSlot]  = cursor | 0;
-        lex_register[lengthSlot] = 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_EOF, cursor | 0, 0);
         return;
     }
 
     const start = cursor | 0;
     const ch = source[cursor] | 0;
 
-    // ── Single-character punctuation ──
+    // ── Multi-character operators (must check before single-char) ──
+
+    // = or === or ==
     if (ch === CH_EQUALS) {
+        if (cursor + 2 < source_length &&
+            (source[(cursor + 1) | 0] | 0) === CH_EQUALS &&
+            (source[(cursor + 2) | 0] | 0) === CH_EQUALS) {
+            cursor = (cursor + 3) | 0;
+            emit_token(typeSlot, startSlot, lengthSlot, TOKEN_STRICT_EQ, start | 0, 3);
+            return;
+        }
         cursor = (cursor + 1) | 0;
-        lex_register[typeSlot]   = TOKEN_ASSIGN;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = 1;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_ASSIGN, start | 0, 1);
         return;
     }
+
+    // ! or !== or !=
+    if (ch === CH_BANG) {
+        if (cursor + 2 < source_length &&
+            (source[(cursor + 1) | 0] | 0) === CH_EQUALS &&
+            (source[(cursor + 2) | 0] | 0) === CH_EQUALS) {
+            cursor = (cursor + 3) | 0;
+            emit_token(typeSlot, startSlot, lengthSlot, TOKEN_STRICT_NEQ, start | 0, 3);
+            return;
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LOGICAL_NOT, start | 0, 1);
+        return;
+    }
+
+    // < or <= or << 
+    if (ch === CH_LT) {
+        if (cursor + 1 < source_length) {
+            const next = source[(cursor + 1) | 0] | 0;
+            if (next === CH_EQUALS) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LTE, start | 0, 2);
+                return;
+            }
+            if (next === CH_LT) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LSHIFT, start | 0, 2);
+                return;
+            }
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LT, start | 0, 1);
+        return;
+    }
+
+    // > or >= or >> or >>>
+    if (ch === CH_GT) {
+        if (cursor + 1 < source_length) {
+            const next = source[(cursor + 1) | 0] | 0;
+            if (next === CH_EQUALS) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_GTE, start | 0, 2);
+                return;
+            }
+            if (next === CH_GT) {
+                if (cursor + 2 < source_length && (source[(cursor + 2) | 0] | 0) === CH_GT) {
+                    cursor = (cursor + 3) | 0;
+                    emit_token(typeSlot, startSlot, lengthSlot, TOKEN_URSHIFT, start | 0, 3);
+                    return;
+                }
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_RSHIFT, start | 0, 2);
+                return;
+            }
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_GT, start | 0, 1);
+        return;
+    }
+
+    // + or ++ or +=
+    if (ch === CH_PLUS) {
+        if (cursor + 1 < source_length) {
+            const next = source[(cursor + 1) | 0] | 0;
+            if (next === CH_PLUS) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_INCREMENT, start | 0, 2);
+                return;
+            }
+            if (next === CH_EQUALS) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_PLUS_ASSIGN, start | 0, 2);
+                return;
+            }
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_PLUS, start | 0, 1);
+        return;
+    }
+
+    // - or -- or -=
+    if (ch === CH_MINUS) {
+        if (cursor + 1 < source_length) {
+            const next = source[(cursor + 1) | 0] | 0;
+            if (next === CH_MINUS) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_DECREMENT, start | 0, 2);
+                return;
+            }
+            if (next === CH_EQUALS) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_MINUS_ASSIGN, start | 0, 2);
+                return;
+            }
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_MINUS, start | 0, 1);
+        return;
+    }
+
+    // * or *=
+    if (ch === CH_STAR) {
+        if (cursor + 1 < source_length && (source[(cursor + 1) | 0] | 0) === CH_EQUALS) {
+            cursor = (cursor + 2) | 0;
+            emit_token(typeSlot, startSlot, lengthSlot, TOKEN_MUL_ASSIGN, start | 0, 2);
+            return;
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_MUL, start | 0, 1);
+        return;
+    }
+
+    // / or /= (note: / as division, not comment — comments already skipped)
+    if (ch === CH_SLASH) {
+        if (cursor + 1 < source_length && (source[(cursor + 1) | 0] | 0) === CH_EQUALS) {
+            cursor = (cursor + 2) | 0;
+            emit_token(typeSlot, startSlot, lengthSlot, TOKEN_DIV_ASSIGN, start | 0, 2);
+            return;
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_DIV, start | 0, 1);
+        return;
+    }
+
+    // % or %=
+    if (ch === CH_PERCENT) {
+        if (cursor + 1 < source_length && (source[(cursor + 1) | 0] | 0) === CH_EQUALS) {
+            cursor = (cursor + 2) | 0;
+            emit_token(typeSlot, startSlot, lengthSlot, TOKEN_MOD_ASSIGN, start | 0, 2);
+            return;
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_MOD, start | 0, 1);
+        return;
+    }
+
+    // | or || or |=
+    if (ch === CH_PIPE) {
+        if (cursor + 1 < source_length) {
+            const next = source[(cursor + 1) | 0] | 0;
+            if (next === CH_PIPE) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LOGICAL_OR, start | 0, 2);
+                return;
+            }
+            if (next === CH_EQUALS) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_OR_ASSIGN, start | 0, 2);
+                return;
+            }
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_BIT_OR, start | 0, 1);
+        return;
+    }
+
+    // & or && or &=
+    if (ch === CH_AMP) {
+        if (cursor + 1 < source_length) {
+            const next = source[(cursor + 1) | 0] | 0;
+            if (next === CH_AMP) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LOGICAL_AND, start | 0, 2);
+                return;
+            }
+            if (next === CH_EQUALS) {
+                cursor = (cursor + 2) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_AND_ASSIGN, start | 0, 2);
+                return;
+            }
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_BIT_AND, start | 0, 1);
+        return;
+    }
+
+    // ^ or ^=
+    if (ch === CH_CARET) {
+        if (cursor + 1 < source_length && (source[(cursor + 1) | 0] | 0) === CH_EQUALS) {
+            cursor = (cursor + 2) | 0;
+            emit_token(typeSlot, startSlot, lengthSlot, TOKEN_XOR_ASSIGN, start | 0, 2);
+            return;
+        }
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_BIT_XOR, start | 0, 1);
+        return;
+    }
+
+    // ── Single-character punctuation ──
     if (ch === CH_DOT) {
         cursor = (cursor + 1) | 0;
-        lex_register[typeSlot]   = TOKEN_DOT;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = 1;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_DOT, start | 0, 1);
         return;
     }
     if (ch === CH_LPAREN) {
         cursor = (cursor + 1) | 0;
-        lex_register[typeSlot]   = TOKEN_LPAREN;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = 1;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LPAREN, start | 0, 1);
         return;
     }
     if (ch === CH_RPAREN) {
         cursor = (cursor + 1) | 0;
-        lex_register[typeSlot]   = TOKEN_RPAREN;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = 1;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_RPAREN, start | 0, 1);
         return;
     }
     if (ch === CH_SEMICOLON) {
         cursor = (cursor + 1) | 0;
-        lex_register[typeSlot]   = TOKEN_SEMICOLON;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = 1;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_SEMICOLON, start | 0, 1);
         return;
     }
     if (ch === CH_COMMA) {
         cursor = (cursor + 1) | 0;
-        lex_register[typeSlot]   = TOKEN_COMMA;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = 1;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_COMMA, start | 0, 1);
         return;
     }
     if (ch === CH_LBRACE) {
         cursor = (cursor + 1) | 0;
-        lex_register[typeSlot]   = TOKEN_LBRACE;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = 1;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LBRACE, start | 0, 1);
         return;
     }
     if (ch === CH_RBRACE) {
         cursor = (cursor + 1) | 0;
-        lex_register[typeSlot]   = TOKEN_RBRACE;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = 1;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_RBRACE, start | 0, 1);
+        return;
+    }
+    if (ch === CH_LBRACKET) {
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_LBRACKET, start | 0, 1);
+        return;
+    }
+    if (ch === CH_RBRACKET) {
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_RBRACKET, start | 0, 1);
+        return;
+    }
+    if (ch === CH_COLON) {
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_COLON, start | 0, 1);
+        return;
+    }
+    if (ch === CH_QUESTION) {
+        cursor = (cursor + 1) | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_QUESTION, start | 0, 1);
         return;
     }
 
@@ -249,14 +538,33 @@ function scan_token(typeSlot, startSlot, lengthSlot) {
         const str_length = (cursor - str_start) | 0;
         cursor = (cursor + 1) | 0; // skip closing quote
 
-        lex_register[typeSlot]   = TOKEN_STRING;
-        lex_register[startSlot]  = str_start | 0;
-        lex_register[lengthSlot] = str_length | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_STRING, str_start | 0, str_length | 0);
         return;
     }
 
-    // ── Number Literal ──
+    // ── Number Literal (including 0x hex) ──
     if (ch >= CH_0 && ch <= CH_9) {
+        // Check for hex: 0x
+        if (ch === CH_0 && cursor + 1 < source_length) {
+            const next_ch = source[(cursor + 1) | 0] | 0;
+            // x = 120, X = 88
+            if (next_ch === 120 || next_ch === 88) {
+                cursor = (cursor + 2) | 0;
+                while (cursor < source_length) {
+                    const hc = source[cursor] | 0;
+                    if ((hc >= CH_0 && hc <= CH_9) ||
+                        (hc >= CH_a && hc <= 102) ||    // a-f
+                        (hc >= CH_A_UPPER && hc <= 70)) { // A-F
+                        cursor = (cursor + 1) | 0;
+                    } else {
+                        break;
+                    }
+                }
+                const hex_length = (cursor - start) | 0;
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_NUMBER, start | 0, hex_length | 0);
+                return;
+            }
+        }
         while (cursor < source_length) {
             const nc = source[cursor] | 0;
             if (nc < CH_0 || nc > CH_9) {
@@ -270,9 +578,7 @@ function scan_token(typeSlot, startSlot, lengthSlot) {
             cursor = (cursor + 1) | 0;
         }
         const num_length = (cursor - start) | 0;
-        lex_register[typeSlot]   = TOKEN_NUMBER;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = num_length | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, TOKEN_NUMBER, start | 0, num_length | 0);
         return;
     }
 
@@ -287,17 +593,13 @@ function scan_token(typeSlot, startSlot, lengthSlot) {
         // Zero-allocation keyword matching: check by length, then exact bytes
         const kw = match_keyword(start | 0, id_length | 0);
 
-        lex_register[typeSlot]   = kw | 0;
-        lex_register[startSlot]  = start | 0;
-        lex_register[lengthSlot] = id_length | 0;
+        emit_token(typeSlot, startSlot, lengthSlot, kw | 0, start | 0, id_length | 0);
         return;
     }
 
     // Unknown character — skip to avoid infinite loop
     cursor = (cursor + 1) | 0;
-    lex_register[typeSlot]   = TOKEN_EOF;
-    lex_register[startSlot]  = start | 0;
-    lex_register[lengthSlot] = 1;
+    emit_token(typeSlot, startSlot, lengthSlot, TOKEN_EOF, start | 0, 1);
 }
 
 // ============================================================
@@ -329,29 +631,124 @@ function match_keyword(start, length) {
     start = start | 0;
     length = length | 0;
 
-    if (length === 5) {
-        // "const" = 99, 111, 110, 115, 116
-        if ((source[start] | 0) === 99 &&
-            (source[(start + 1) | 0] | 0) === 111 &&
-            (source[(start + 2) | 0] | 0) === 110 &&
-            (source[(start + 3) | 0] | 0) === 115 &&
-            (source[(start + 4) | 0] | 0) === 116) {
-            return TOKEN_CONST;
+    // ── Length 2 ──
+    if (length === 2) {
+        // "if" = 105, 102
+        if ((source[start] | 0) === 105 &&
+            (source[(start + 1) | 0] | 0) === 102) {
+            return TOKEN_IF;
         }
     }
 
+    // ── Length 3 ──
     if (length === 3) {
+        const c0 = source[start] | 0;
+        const c1 = source[(start + 1) | 0] | 0;
+        const c2 = source[(start + 2) | 0] | 0;
+
         // "let" = 108, 101, 116
-        if ((source[start] | 0) === 108 &&
-            (source[(start + 1) | 0] | 0) === 101 &&
-            (source[(start + 2) | 0] | 0) === 116) {
-            return TOKEN_LET;
-        }
+        if (c0 === 108 && c1 === 101 && c2 === 116) return TOKEN_LET;
         // "var" = 118, 97, 114
-        if ((source[start] | 0) === 118 &&
-            (source[(start + 1) | 0] | 0) === 97 &&
-            (source[(start + 2) | 0] | 0) === 114) {
-            return TOKEN_VAR;
+        if (c0 === 118 && c1 === 97 && c2 === 114) return TOKEN_VAR;
+        // "for" = 102, 111, 114
+        if (c0 === 102 && c1 === 111 && c2 === 114) return TOKEN_FOR;
+        // "new" = 110, 101, 119
+        if (c0 === 110 && c1 === 101 && c2 === 119) return TOKEN_NEW;
+    }
+
+    // ── Length 4 ──
+    if (length === 4) {
+        const c0 = source[start] | 0;
+        const c1 = source[(start + 1) | 0] | 0;
+        const c2 = source[(start + 2) | 0] | 0;
+        const c3 = source[(start + 3) | 0] | 0;
+
+        // "else" = 101, 108, 115, 101
+        if (c0 === 101 && c1 === 108 && c2 === 115 && c3 === 101) return TOKEN_ELSE;
+        // "true" = 116, 114, 117, 101
+        if (c0 === 116 && c1 === 114 && c2 === 117 && c3 === 101) return TOKEN_TRUE;
+        // "null" = 110, 117, 108, 108
+        if (c0 === 110 && c1 === 117 && c2 === 108 && c3 === 108) return TOKEN_NULL;
+        // "this" = 116, 104, 105, 115
+        if (c0 === 116 && c1 === 104 && c2 === 105 && c3 === 115) return TOKEN_THIS;
+    }
+
+    // ── Length 5 ──
+    if (length === 5) {
+        const c0 = source[start] | 0;
+        const c1 = source[(start + 1) | 0] | 0;
+        const c2 = source[(start + 2) | 0] | 0;
+        const c3 = source[(start + 3) | 0] | 0;
+        const c4 = source[(start + 4) | 0] | 0;
+
+        // "const" = 99, 111, 110, 115, 116
+        if (c0 === 99 && c1 === 111 && c2 === 110 && c3 === 115 && c4 === 116) return TOKEN_CONST;
+        // "while" = 119, 104, 105, 108, 101
+        if (c0 === 119 && c1 === 104 && c2 === 105 && c3 === 108 && c4 === 101) return TOKEN_WHILE;
+        // "break" = 98, 114, 101, 97, 107
+        if (c0 === 98 && c1 === 114 && c2 === 101 && c3 === 97 && c4 === 107) return TOKEN_BREAK;
+        // "throw" = 116, 104, 114, 111, 119
+        if (c0 === 116 && c1 === 104 && c2 === 114 && c3 === 111 && c4 === 119) return TOKEN_THROW;
+        // "class" = 99, 108, 97, 115, 115
+        if (c0 === 99 && c1 === 108 && c2 === 97 && c3 === 115 && c4 === 115) return TOKEN_CLASS;
+        // "false" = 102, 97, 108, 115, 101
+        if (c0 === 102 && c1 === 97 && c2 === 108 && c3 === 115 && c4 === 101) return TOKEN_FALSE;
+    }
+
+    // ── Length 6 ──
+    if (length === 6) {
+        const c0 = source[start] | 0;
+        const c1 = source[(start + 1) | 0] | 0;
+        const c2 = source[(start + 2) | 0] | 0;
+        const c3 = source[(start + 3) | 0] | 0;
+        const c4 = source[(start + 4) | 0] | 0;
+        const c5 = source[(start + 5) | 0] | 0;
+
+        // "return" = 114, 101, 116, 117, 114, 110
+        if (c0 === 114 && c1 === 101 && c2 === 116 && c3 === 117 && c4 === 114 && c5 === 110) return TOKEN_RETURN;
+        // "typeof" = 116, 121, 112, 101, 111, 102
+        if (c0 === 116 && c1 === 121 && c2 === 112 && c3 === 101 && c4 === 111 && c5 === 102) return TOKEN_TYPEOF;
+    }
+
+    // ── Length 8 ──
+    if (length === 8) {
+        // "function" = 102, 117, 110, 99, 116, 105, 111, 110
+        if ((source[start] | 0) === 102 &&
+            (source[(start + 1) | 0] | 0) === 117 &&
+            (source[(start + 2) | 0] | 0) === 110 &&
+            (source[(start + 3) | 0] | 0) === 99 &&
+            (source[(start + 4) | 0] | 0) === 116 &&
+            (source[(start + 5) | 0] | 0) === 105 &&
+            (source[(start + 6) | 0] | 0) === 111 &&
+            (source[(start + 7) | 0] | 0) === 110) {
+            return TOKEN_FUNCTION;
+        }
+        // "continue" = 99, 111, 110, 116, 105, 110, 117, 101
+        if ((source[start] | 0) === 99 &&
+            (source[(start + 1) | 0] | 0) === 111 &&
+            (source[(start + 2) | 0] | 0) === 110 &&
+            (source[(start + 3) | 0] | 0) === 116 &&
+            (source[(start + 4) | 0] | 0) === 105 &&
+            (source[(start + 5) | 0] | 0) === 110 &&
+            (source[(start + 6) | 0] | 0) === 117 &&
+            (source[(start + 7) | 0] | 0) === 101) {
+            return TOKEN_CONTINUE;
+        }
+    }
+
+    // ── Length 9 ──
+    if (length === 9) {
+        // "undefined" = 117, 110, 100, 101, 102, 105, 110, 101, 100
+        if ((source[start] | 0) === 117 &&
+            (source[(start + 1) | 0] | 0) === 110 &&
+            (source[(start + 2) | 0] | 0) === 100 &&
+            (source[(start + 3) | 0] | 0) === 101 &&
+            (source[(start + 4) | 0] | 0) === 102 &&
+            (source[(start + 5) | 0] | 0) === 105 &&
+            (source[(start + 6) | 0] | 0) === 110 &&
+            (source[(start + 7) | 0] | 0) === 101 &&
+            (source[(start + 8) | 0] | 0) === 100) {
+            return TOKEN_UNDEFINED;
         }
     }
 
@@ -367,11 +764,42 @@ module.exports = {
     REG_TYPE, REG_START, REG_LENGTH,
     PEEK_TYPE, PEEK_START, PEEK_LENGTH,
 
-    // Token Enums
+    // Token Enums — Atoms
     TOKEN_EOF, TOKEN_IDENTIFIER, TOKEN_NUMBER, TOKEN_STRING,
+
+    // Token Enums — Keywords
     TOKEN_CONST, TOKEN_LET, TOKEN_VAR,
+    TOKEN_FUNCTION, TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_FOR,
+    TOKEN_RETURN, TOKEN_NEW, TOKEN_THROW, TOKEN_CONTINUE, TOKEN_BREAK,
+    TOKEN_CLASS, TOKEN_TRUE, TOKEN_FALSE, TOKEN_NULL, TOKEN_UNDEFINED,
+    TOKEN_TYPEOF, TOKEN_THIS,
+
+    // Token Enums — Punctuation
     TOKEN_ASSIGN, TOKEN_DOT, TOKEN_LPAREN, TOKEN_RPAREN,
     TOKEN_SEMICOLON, TOKEN_COMMA, TOKEN_LBRACE, TOKEN_RBRACE,
+    TOKEN_LBRACKET, TOKEN_RBRACKET, TOKEN_COLON, TOKEN_QUESTION,
+
+    // Token Enums — Comparison
+    TOKEN_STRICT_EQ, TOKEN_STRICT_NEQ,
+    TOKEN_LT, TOKEN_GT, TOKEN_LTE, TOKEN_GTE,
+
+    // Token Enums — Arithmetic
+    TOKEN_PLUS, TOKEN_MINUS, TOKEN_MUL, TOKEN_DIV, TOKEN_MOD,
+
+    // Token Enums — Bitwise
+    TOKEN_BIT_OR, TOKEN_BIT_XOR, TOKEN_BIT_AND,
+    TOKEN_LSHIFT, TOKEN_RSHIFT, TOKEN_URSHIFT,
+
+    // Token Enums — Logical
+    TOKEN_LOGICAL_NOT, TOKEN_LOGICAL_OR, TOKEN_LOGICAL_AND,
+
+    // Token Enums — Assignment
+    TOKEN_PLUS_ASSIGN, TOKEN_MINUS_ASSIGN, TOKEN_MUL_ASSIGN,
+    TOKEN_DIV_ASSIGN, TOKEN_MOD_ASSIGN,
+    TOKEN_OR_ASSIGN, TOKEN_AND_ASSIGN, TOKEN_XOR_ASSIGN,
+
+    // Token Enums — Update
+    TOKEN_INCREMENT, TOKEN_DECREMENT,
 
     // API
     init,

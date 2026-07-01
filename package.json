@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "jest core/tests/ packages/*/tests/"
+    "test": "jest core/tests/ packages/*/tests/",
+    "bootstrap": "node --stack-size=65536 compiler/scripts/bootstrap.js"
   },
   "keywords": [
     "compiler",

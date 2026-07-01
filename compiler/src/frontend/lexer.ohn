@@ -1,0 +1,380 @@
+// compiler/src/frontend/lexer.ohn
+// Zero-Allocation Lexer for the Ohnrscript Self-Hosted Compiler
+// Uses a 6-element Int32Array Register File (LL(1) Lookahead)
+// No wrapper classes, no dynamic objects, no strings.
+// All arithmetic is SMI-safe (suffixed with | 0).
+
+'use strict';
+
+// ============================================================
+// Token Type Enums (strict integer constants)
+// ============================================================
+const TOKEN_EOF         = 0;
+const TOKEN_IDENTIFIER  = 1;
+const TOKEN_NUMBER      = 2;
+const TOKEN_STRING      = 3;
+const TOKEN_CONST       = 10;
+const TOKEN_LET         = 11;
+const TOKEN_VAR         = 12;
+const TOKEN_ASSIGN      = 20;  // =
+const TOKEN_DOT         = 21;  // .
+const TOKEN_LPAREN      = 22;  // (
+const TOKEN_RPAREN      = 23;  // )
+const TOKEN_SEMICOLON   = 24;  // ;
+const TOKEN_COMMA       = 25;  // ,
+const TOKEN_LBRACE      = 26;  // {
+const TOKEN_RBRACE      = 27;  // }
+
+// ============================================================
+// ASCII Byte Constants (avoids magic numbers)
+// ============================================================
+const CH_TAB       = 9;
+const CH_LF        = 10;
+const CH_CR        = 13;
+const CH_SPACE     = 32;
+const CH_DQUOTE    = 34;  // "
+const CH_SQUOTE    = 39;  // '
+const CH_LPAREN    = 40;  // (
+const CH_RPAREN    = 41;  // )
+const CH_COMMA     = 44;  // ,
+const CH_DOT       = 46;  // .
+const CH_SLASH     = 47;  // /
+const CH_0         = 48;
+const CH_9         = 57;
+const CH_SEMICOLON = 59;  // ;
+const CH_EQUALS    = 61;  // =
+const CH_A_UPPER   = 65;
+const CH_Z_UPPER   = 90;
+const CH_LBRACE    = 123; // {
+const CH_RBRACE    = 125; // }
+const CH_UNDERSCORE = 95; // _
+const CH_a         = 97;
+const CH_z         = 122;
+const CH_DOLLAR    = 36;  // $
+const CH_BACKSLASH = 92;  // \
+const CH_n_LOWER   = 110; // n
+const CH_t_LOWER   = 116; // t
+const CH_r_LOWER   = 114; // r
+
+// ============================================================
+// Lexer Register File — new Int32Array(6)
+// Slots 0-2: Current Token
+// Slots 3-5: Peek Token (LL(1) Lookahead)
+// ============================================================
+const REG_TYPE   = 0;
+const REG_START  = 1;
+const REG_LENGTH = 2;
+const PEEK_TYPE   = 3;
+const PEEK_START  = 4;
+const PEEK_LENGTH = 5;
+
+// The permanent, zero-allocation Lexer State
+const lex_register = new Int32Array(6);
+
+// Module-level state — raw integers, no objects
+let source = null;  // Uint8Array — set once by init()
+let source_length = 0;
+let cursor = 0;
+
+// ============================================================
+// Lexer Initialization
+// ============================================================
+function init(sourceBuffer) {
+    source = sourceBuffer;
+    source_length = sourceBuffer.length | 0;
+    cursor = 0;
+
+    // Prime both registers by scanning two tokens
+    scan_token(PEEK_TYPE, PEEK_START, PEEK_LENGTH);
+    // Shift peek into current, scan next peek
+    advance();
+}
+
+// ============================================================
+// advance() — Shift Peek into Current, scan new Peek
+// ============================================================
+function advance() {
+    lex_register[REG_TYPE]   = lex_register[PEEK_TYPE]   | 0;
+    lex_register[REG_START]  = lex_register[PEEK_START]  | 0;
+    lex_register[REG_LENGTH] = lex_register[PEEK_LENGTH] | 0;
+    scan_token(PEEK_TYPE, PEEK_START, PEEK_LENGTH);
+}
+
+// ============================================================
+// expect() — Assert current token type, then advance
+// ============================================================
+function expect(tokenType) {
+    if ((lex_register[REG_TYPE] | 0) !== (tokenType | 0)) {
+        // Minimal error — we only allocate a string here on a fatal parse error
+        throw new Error(
+            'Expected token type ' + tokenType + ' but got ' + lex_register[REG_TYPE] +
+            ' at byte offset ' + lex_register[REG_START]
+        );
+    }
+    advance();
+}
+
+// ============================================================
+// skip_whitespace_and_comments()
+// ============================================================
+function skip_whitespace_and_comments() {
+    while (cursor < source_length) {
+        const ch = source[cursor] | 0;
+
+        // Whitespace
+        if (ch === CH_SPACE || ch === CH_TAB || ch === CH_LF || ch === CH_CR) {
+            cursor = (cursor + 1) | 0;
+            continue;
+        }
+
+        // Single-line comment: //
+        if (ch === CH_SLASH && cursor + 1 < source_length && (source[(cursor + 1) | 0] | 0) === CH_SLASH) {
+            cursor = (cursor + 2) | 0;
+            while (cursor < source_length && (source[cursor] | 0) !== CH_LF) {
+                cursor = (cursor + 1) | 0;
+            }
+            continue;
+        }
+
+        // Multi-line comment: /* ... */
+        if (ch === CH_SLASH && cursor + 1 < source_length && (source[(cursor + 1) | 0] | 0) === 42) { // 42 = *
+            cursor = (cursor + 2) | 0;
+            while (cursor + 1 < source_length) {
+                if ((source[cursor] | 0) === 42 && (source[(cursor + 1) | 0] | 0) === CH_SLASH) {
+                    cursor = (cursor + 2) | 0;
+                    break;
+                }
+                cursor = (cursor + 1) | 0;
+            }
+            continue;
+        }
+
+        break;
+    }
+}
+
+// ============================================================
+// scan_token() — Scan the next token, write directly into registers
+// ============================================================
+function scan_token(typeSlot, startSlot, lengthSlot) {
+    skip_whitespace_and_comments();
+
+    if (cursor >= source_length) {
+        lex_register[typeSlot]   = TOKEN_EOF;
+        lex_register[startSlot]  = cursor | 0;
+        lex_register[lengthSlot] = 0;
+        return;
+    }
+
+    const start = cursor | 0;
+    const ch = source[cursor] | 0;
+
+    // ── Single-character punctuation ──
+    if (ch === CH_EQUALS) {
+        cursor = (cursor + 1) | 0;
+        lex_register[typeSlot]   = TOKEN_ASSIGN;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = 1;
+        return;
+    }
+    if (ch === CH_DOT) {
+        cursor = (cursor + 1) | 0;
+        lex_register[typeSlot]   = TOKEN_DOT;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = 1;
+        return;
+    }
+    if (ch === CH_LPAREN) {
+        cursor = (cursor + 1) | 0;
+        lex_register[typeSlot]   = TOKEN_LPAREN;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = 1;
+        return;
+    }
+    if (ch === CH_RPAREN) {
+        cursor = (cursor + 1) | 0;
+        lex_register[typeSlot]   = TOKEN_RPAREN;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = 1;
+        return;
+    }
+    if (ch === CH_SEMICOLON) {
+        cursor = (cursor + 1) | 0;
+        lex_register[typeSlot]   = TOKEN_SEMICOLON;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = 1;
+        return;
+    }
+    if (ch === CH_COMMA) {
+        cursor = (cursor + 1) | 0;
+        lex_register[typeSlot]   = TOKEN_COMMA;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = 1;
+        return;
+    }
+    if (ch === CH_LBRACE) {
+        cursor = (cursor + 1) | 0;
+        lex_register[typeSlot]   = TOKEN_LBRACE;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = 1;
+        return;
+    }
+    if (ch === CH_RBRACE) {
+        cursor = (cursor + 1) | 0;
+        lex_register[typeSlot]   = TOKEN_RBRACE;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = 1;
+        return;
+    }
+
+    // ── String Literal (double or single quote) ──
+    if (ch === CH_DQUOTE || ch === CH_SQUOTE) {
+        const quote = ch | 0;
+        cursor = (cursor + 1) | 0; // skip opening quote
+        const str_start = cursor | 0;
+
+        while (cursor < source_length) {
+            const sc = source[cursor] | 0;
+            if (sc === CH_BACKSLASH) {
+                // Skip escape sequence (2 bytes)
+                cursor = (cursor + 2) | 0;
+                continue;
+            }
+            if (sc === quote) {
+                break;
+            }
+            cursor = (cursor + 1) | 0;
+        }
+
+        const str_length = (cursor - str_start) | 0;
+        cursor = (cursor + 1) | 0; // skip closing quote
+
+        lex_register[typeSlot]   = TOKEN_STRING;
+        lex_register[startSlot]  = str_start | 0;
+        lex_register[lengthSlot] = str_length | 0;
+        return;
+    }
+
+    // ── Number Literal ──
+    if (ch >= CH_0 && ch <= CH_9) {
+        while (cursor < source_length) {
+            const nc = source[cursor] | 0;
+            if (nc < CH_0 || nc > CH_9) {
+                // Allow a single decimal dot
+                if (nc === CH_DOT) {
+                    cursor = (cursor + 1) | 0;
+                    continue;
+                }
+                break;
+            }
+            cursor = (cursor + 1) | 0;
+        }
+        const num_length = (cursor - start) | 0;
+        lex_register[typeSlot]   = TOKEN_NUMBER;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = num_length | 0;
+        return;
+    }
+
+    // ── Identifier or Keyword ──
+    if (is_ident_start(ch)) {
+        cursor = (cursor + 1) | 0;
+        while (cursor < source_length && is_ident_part(source[cursor] | 0)) {
+            cursor = (cursor + 1) | 0;
+        }
+        const id_length = (cursor - start) | 0;
+
+        // Zero-allocation keyword matching: check by length, then exact bytes
+        const kw = match_keyword(start | 0, id_length | 0);
+
+        lex_register[typeSlot]   = kw | 0;
+        lex_register[startSlot]  = start | 0;
+        lex_register[lengthSlot] = id_length | 0;
+        return;
+    }
+
+    // Unknown character — skip to avoid infinite loop
+    cursor = (cursor + 1) | 0;
+    lex_register[typeSlot]   = TOKEN_EOF;
+    lex_register[startSlot]  = start | 0;
+    lex_register[lengthSlot] = 1;
+}
+
+// ============================================================
+// is_ident_start / is_ident_part — pure byte checks
+// ============================================================
+function is_ident_start(ch) {
+    ch = ch | 0;
+    return (ch >= CH_a && ch <= CH_z) ||
+           (ch >= CH_A_UPPER && ch <= CH_Z_UPPER) ||
+           ch === CH_UNDERSCORE ||
+           ch === CH_DOLLAR;
+}
+
+function is_ident_part(ch) {
+    ch = ch | 0;
+    return (ch >= CH_a && ch <= CH_z) ||
+           (ch >= CH_A_UPPER && ch <= CH_Z_UPPER) ||
+           (ch >= CH_0 && ch <= CH_9) ||
+           ch === CH_UNDERSCORE ||
+           ch === CH_DOLLAR;
+}
+
+// ============================================================
+// match_keyword() — Zero-Allocation Keyword Matcher
+// Checks by length first, then exact byte values.
+// Returns the keyword token type, or TOKEN_IDENTIFIER.
+// ============================================================
+function match_keyword(start, length) {
+    start = start | 0;
+    length = length | 0;
+
+    if (length === 5) {
+        // "const" = 99, 111, 110, 115, 116
+        if ((source[start] | 0) === 99 &&
+            (source[(start + 1) | 0] | 0) === 111 &&
+            (source[(start + 2) | 0] | 0) === 110 &&
+            (source[(start + 3) | 0] | 0) === 115 &&
+            (source[(start + 4) | 0] | 0) === 116) {
+            return TOKEN_CONST;
+        }
+    }
+
+    if (length === 3) {
+        // "let" = 108, 101, 116
+        if ((source[start] | 0) === 108 &&
+            (source[(start + 1) | 0] | 0) === 101 &&
+            (source[(start + 2) | 0] | 0) === 116) {
+            return TOKEN_LET;
+        }
+        // "var" = 118, 97, 114
+        if ((source[start] | 0) === 118 &&
+            (source[(start + 1) | 0] | 0) === 97 &&
+            (source[(start + 2) | 0] | 0) === 114) {
+            return TOKEN_VAR;
+        }
+    }
+
+    return TOKEN_IDENTIFIER;
+}
+
+// ============================================================
+// Exports
+// ============================================================
+module.exports = {
+    // Register File
+    lex_register,
+    REG_TYPE, REG_START, REG_LENGTH,
+    PEEK_TYPE, PEEK_START, PEEK_LENGTH,
+
+    // Token Enums
+    TOKEN_EOF, TOKEN_IDENTIFIER, TOKEN_NUMBER, TOKEN_STRING,
+    TOKEN_CONST, TOKEN_LET, TOKEN_VAR,
+    TOKEN_ASSIGN, TOKEN_DOT, TOKEN_LPAREN, TOKEN_RPAREN,
+    TOKEN_SEMICOLON, TOKEN_COMMA, TOKEN_LBRACE, TOKEN_RBRACE,
+
+    // API
+    init,
+    advance,
+    expect,
+};

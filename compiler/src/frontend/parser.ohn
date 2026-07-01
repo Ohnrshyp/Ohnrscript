@@ -1,0 +1,616 @@
+// compiler/src/frontend/parser.ohn
+// Zero-Allocation DOD Pratt Parser for the Ohnrscript Self-Hosted Compiler
+// Manages 4 memory arenas: Main AST, AST Extra, Intern Pool, Symbol Table
+// No wrapper classes, no helper objects, no dynamic arrays.
+// All arithmetic is SMI-safe (suffixed with | 0).
+
+'use strict';
+
+const lexer = require('./lexer.ohn');
+const arena = require('../core/arena.ohn');
+
+// ============================================================
+// AST Node Type Enums (Bits 0-7)
+// ============================================================
+const NODE_PROGRAM              = 0x00;
+const NODE_VARIABLE_DECLARATION = 0x01;
+const NODE_VARIABLE_DECLARATOR  = 0x02;
+const NODE_IDENTIFIER           = 0x03;
+const NODE_LITERAL              = 0x04;
+const NODE_CALL_EXPRESSION      = 0x05;
+const NODE_EXPRESSION_STATEMENT = 0x06;
+const NODE_MEMBER_EXPRESSION    = 0x07;
+
+// ============================================================
+// Modifier Flags (Bits 8-31) — OR'd with base type
+// ============================================================
+const FLAG_CONST    = 0x0100;  // VariableDeclaration: const
+const FLAG_LET      = 0x0200;  // VariableDeclaration: let
+const FLAG_VAR      = 0x0400;  // VariableDeclaration: var
+const FLAG_STRING   = 0x0100;  // Literal: string (data_1 -> Intern Pool offset)
+const FLAG_NUMBER   = 0x0200;  // Literal: number (data_1 -> inline value)
+const FLAG_COMPUTED = 0x0100;  // MemberExpression: computed (bracket notation)
+
+// ============================================================
+// 16-Byte AST Node Struct Layout (4 x Int32)
+// ============================================================
+// Offset 0x00: type_and_flags
+// Offset 0x04: source_location (byte offset into raw source buffer)
+// Offset 0x08: data_1 (primary: symbol offset, LHS pointer, child count)
+// Offset 0x0C: data_2 (secondary: RHS pointer, ast_extra offset)
+const SLOT_TYPE_FLAGS = 0;
+const SLOT_SOURCE_LOC = 1;
+const SLOT_DATA_1     = 2;
+const SLOT_DATA_2     = 3;
+const NODE_SIZE_SLOTS = 4; // 4 Int32 slots = 16 bytes
+
+// ============================================================
+// Memory Arenas — pre-allocated, zero-GC
+// ============================================================
+const AST_ARENA_CAPACITY   = 256 * 1024;  // 256K slots (1MB)
+const EXTRA_ARENA_CAPACITY = 256 * 1024;  // 256K Int32s (1MB)
+const INTERN_POOL_CAPACITY = 1024 * 1024; // 1MB
+
+// Main AST Arena: fixed-size 16-byte structs
+const ast_nodes = new Int32Array(AST_ARENA_CAPACITY);
+let ast_cursor = 0; // next free slot index (in Int32 units)
+
+// AST Extra Data: variable-length children pointers (The Zig Hack)
+const ast_extra = new Int32Array(EXTRA_ARENA_CAPACITY);
+let extra_cursor = 0;
+
+// String Intern Pool: raw UTF-8 bytes separated by \0
+const intern_pool = new Uint8Array(INTERN_POOL_CAPACITY);
+let intern_cursor = 1; // start at 1 so offset 0 means "no string"
+
+// Symbol Table: reuse the arena.ohn hash table for intern dedup
+const symbolScope = arena.allocateScope(null);
+
+// Scratch Stack: collects child node indices to avoid
+// interleaving with ast_extra pushes from nested parse calls.
+// This is a pre-allocated Int32Array, NOT a dynamic array.
+const SCRATCH_CAPACITY = 4096;
+const scratch_stack = new Int32Array(SCRATCH_CAPACITY);
+let scratch_cursor = 0;
+
+// Source buffer reference (set by init)
+let source = null;
+
+// ============================================================
+// Arena Writers — raw procedural functions, no objects
+// ============================================================
+
+// Allocate a 16-byte AST node, returns the slot index (in Int32 units)
+function alloc_node(type_and_flags, source_location, data_1, data_2) {
+    const idx = ast_cursor | 0;
+    ast_nodes[idx]             = type_and_flags | 0;
+    ast_nodes[(idx + 1) | 0]   = source_location | 0;
+    ast_nodes[(idx + 2) | 0]   = data_1 | 0;
+    ast_nodes[(idx + 3) | 0]   = data_2 | 0;
+    ast_cursor = (idx + NODE_SIZE_SLOTS) | 0;
+    return idx | 0;
+}
+
+// Push a child pointer into ast_extra, returns the index it was placed at
+function push_extra(value) {
+    const idx = extra_cursor | 0;
+    ast_extra[idx] = value | 0;
+    extra_cursor = (idx + 1) | 0;
+    return idx | 0;
+}
+
+// ============================================================
+// String Interning Engine (Hash Lookup + Unescaping)
+// ============================================================
+
+// Intern a raw identifier (no escape processing needed)
+function intern_identifier(src_start, src_length) {
+    src_start = src_start | 0;
+    src_length = src_length | 0;
+
+    // Hash the raw source bytes
+    const hash = arena.fnv1a(source, src_start, src_length);
+
+    // Probe the symbol table to see if already interned
+    const u32 = symbolScope.u32;
+    const u8 = symbolScope.u8;
+
+    let index = ((hash >>> 0) % ((symbolScope.u32.length / 4) | 0)) | 0;
+    while (true) {
+        const structBase = (index * 4) | 0;
+        const key_offset = u32[structBase] | 0;
+
+        if (key_offset === 0) {
+            // Not found — intern it into OUR intern_pool (not the arena's string area)
+            const offset = intern_cursor | 0;
+            for (let i = 0; i < src_length; i = (i + 1) | 0) {
+                intern_pool[(offset + i) | 0] = source[(src_start + i) | 0];
+            }
+            intern_pool[(offset + src_length) | 0] = 0; // null terminator
+            intern_cursor = (offset + src_length + 1) | 0;
+
+            // Also insert into the arena's hash table so future lookups hit
+            arena.insertSymbol(symbolScope, source, src_start, src_length, 0, offset);
+
+            return offset | 0;
+        }
+
+        // Check if this is a match
+        const slot_hash = u32[(structBase + 1) | 0] | 0;
+        if ((slot_hash | 0) === (hash | 0)) {
+            // Verify byte match against our intern pool
+            const existing_offset = u32[(structBase + 3) | 0] | 0; // nodeRef stores intern offset
+            let match = true;
+            for (let i = 0; i < src_length; i = (i + 1) | 0) {
+                if ((intern_pool[(existing_offset + i) | 0] | 0) !== (source[(src_start + i) | 0] | 0)) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match && (intern_pool[(existing_offset + src_length) | 0] | 0) === 0) {
+                return existing_offset | 0;
+            }
+        }
+
+        index = ((index + 1) | 0) % ((u32.length / 4) | 0);
+        index = index | 0;
+    }
+}
+
+// Intern a string literal WITH escape processing
+function intern_string_literal(src_start, src_length) {
+    src_start = src_start | 0;
+    src_length = src_length | 0;
+
+    const offset = intern_cursor | 0;
+    let write_pos = offset | 0;
+    const end = (src_start + src_length) | 0;
+    let i = src_start | 0;
+
+    while (i < end) {
+        const byte = source[i] | 0;
+
+        if (byte === 92) { // 0x5C = backslash
+            i = (i + 1) | 0;
+            if (i < end) {
+                const esc = source[i] | 0;
+                // Unescape state machine
+                if (esc === 110) {        // 'n' -> 0x0A newline
+                    intern_pool[write_pos] = 10;
+                } else if (esc === 116) { // 't' -> 0x09 tab
+                    intern_pool[write_pos] = 9;
+                } else if (esc === 114) { // 'r' -> 0x0D carriage return
+                    intern_pool[write_pos] = 13;
+                } else if (esc === 92) {  // '\\' -> 0x5C backslash
+                    intern_pool[write_pos] = 92;
+                } else if (esc === 34) {  // '\"' -> 0x22 double quote
+                    intern_pool[write_pos] = 34;
+                } else if (esc === 39) {  // "\'" -> 0x27 single quote
+                    intern_pool[write_pos] = 39;
+                } else if (esc === 48) {  // '\0' -> 0x00 null
+                    intern_pool[write_pos] = 0;
+                } else {
+                    // Unknown escape — copy literally
+                    intern_pool[write_pos] = esc | 0;
+                }
+                write_pos = (write_pos + 1) | 0;
+                i = (i + 1) | 0;
+            }
+        } else {
+            intern_pool[write_pos] = byte | 0;
+            write_pos = (write_pos + 1) | 0;
+            i = (i + 1) | 0;
+        }
+    }
+
+    // Null terminator
+    intern_pool[write_pos] = 0;
+    const interned_length = (write_pos - offset) | 0;
+    intern_cursor = (write_pos + 1) | 0;
+
+    return offset | 0;
+}
+
+// ============================================================
+// Zero-Allocation Numeric Parsing
+// ascii_to_int: pure arithmetic accumulator, no parseFloat, no strings
+// ============================================================
+function ascii_to_int(start, length) {
+    start = start | 0;
+    length = length | 0;
+    let value = 0;
+    const end = (start + length) | 0;
+    for (let i = start | 0; i < end; i = (i + 1) | 0) {
+        const byte = source[i] | 0;
+        if (byte === 46) continue; // skip decimal dot for integer extraction
+        value = ((value * 10) + (byte - 48)) | 0;
+    }
+    return value | 0;
+}
+
+// ============================================================
+// Pratt Parser — Top-Down Operator Precedence
+// ============================================================
+
+// Binding power table for infix operators
+function get_binding_power(tokenType) {
+    tokenType = tokenType | 0;
+    if (tokenType === lexer.TOKEN_DOT)    return 18; // MemberExpression: highest
+    if (tokenType === lexer.TOKEN_LPAREN) return 17; // CallExpression
+    return 0;
+}
+
+// ============================================================
+// Parser Entry Point
+// ============================================================
+function parse(sourceBuffer) {
+    source = sourceBuffer;
+
+    // Reset arenas
+    ast_cursor = 0;
+    extra_cursor = 0;
+    intern_cursor = 1;
+    scratch_cursor = 0;
+    symbolScope.reset();
+
+    // Initialize lexer
+    lexer.init(sourceBuffer);
+
+    // Parse the program
+    return parse_program() | 0;
+}
+
+// ============================================================
+// parse_program() — Root node, collects top-level statements
+// Deferred push: collect children on scratch_stack, then batch-push.
+// ============================================================
+function parse_program() {
+    // Save scratch cursor so nested calls don't clobber our entries
+    const scratch_base = scratch_cursor | 0;
+    let child_count = 0;
+
+    while ((lexer.lex_register[lexer.REG_TYPE] | 0) !== lexer.TOKEN_EOF) {
+        // Reserve a scratch slot for this child
+        scratch_cursor = (scratch_base + child_count + 1) | 0;
+        const stmt = parse_statement() | 0;
+        scratch_stack[(scratch_base + child_count) | 0] = stmt | 0;
+        child_count = (child_count + 1) | 0;
+    }
+
+    // Batch-push children to ast_extra now that all nested parsing is done
+    const extra_start = extra_cursor | 0;
+    for (let i = 0; i < child_count; i = (i + 1) | 0) {
+        push_extra(scratch_stack[(scratch_base + i) | 0] | 0);
+    }
+
+    // Restore scratch cursor
+    scratch_cursor = scratch_base | 0;
+
+    // Allocate the Program node
+    const node = alloc_node(
+        NODE_PROGRAM,
+        0,
+        child_count | 0,
+        extra_start | 0
+    );
+
+    return node | 0;
+}
+
+// ============================================================
+// parse_statement()
+// ============================================================
+function parse_statement() {
+    const token_type = lexer.lex_register[lexer.REG_TYPE] | 0;
+
+    // Variable Declaration: const, let, var
+    if (token_type === lexer.TOKEN_CONST ||
+        token_type === lexer.TOKEN_LET ||
+        token_type === lexer.TOKEN_VAR) {
+        return parse_variable_declaration() | 0;
+    }
+
+    // Expression Statement (fallback)
+    return parse_expression_statement() | 0;
+}
+
+// ============================================================
+// parse_variable_declaration()
+// const message = "hello";
+// ============================================================
+function parse_variable_declaration() {
+    const src_loc = lexer.lex_register[lexer.REG_START] | 0;
+    const kind_token = lexer.lex_register[lexer.REG_TYPE] | 0;
+
+    // Determine flag
+    let flag = 0;
+    if (kind_token === lexer.TOKEN_CONST) flag = FLAG_CONST;
+    else if (kind_token === lexer.TOKEN_LET) flag = FLAG_LET;
+    else flag = FLAG_VAR;
+
+    // Consume the keyword
+    lexer.advance();
+
+    // Parse declarator (MVP: single declarator)
+    const declarator = parse_variable_declarator() | 0;
+
+    // Batch-push AFTER parsing is complete (no interleaving)
+    const extra_start = extra_cursor | 0;
+    push_extra(declarator);
+    const decl_count = 1;
+
+    // Consume semicolon
+    if ((lexer.lex_register[lexer.REG_TYPE] | 0) === lexer.TOKEN_SEMICOLON) {
+        lexer.advance();
+    }
+
+    // Allocate VariableDeclaration node
+    const node = alloc_node(
+        (NODE_VARIABLE_DECLARATION | flag) | 0,
+        src_loc | 0,
+        decl_count | 0,
+        extra_start | 0
+    );
+
+    return node | 0;
+}
+
+// ============================================================
+// parse_variable_declarator()
+// message = "hello"
+// ============================================================
+function parse_variable_declarator() {
+    const src_loc = lexer.lex_register[lexer.REG_START] | 0;
+
+    // Parse the identifier (LHS)
+    const id_node = parse_identifier() | 0;
+
+    // Expect '='
+    lexer.expect(lexer.TOKEN_ASSIGN);
+
+    // Parse the initializer (RHS)
+    const init_node = parse_expression(0) | 0;
+
+    // Allocate VariableDeclarator node
+    const node = alloc_node(
+        NODE_VARIABLE_DECLARATOR,
+        src_loc | 0,
+        id_node | 0,    // data_1: LHS (Identifier node index)
+        init_node | 0    // data_2: RHS (expression node index)
+    );
+
+    return node | 0;
+}
+
+// ============================================================
+// parse_identifier() — Reads current Identifier token, interns it
+// ============================================================
+function parse_identifier() {
+    const src_loc = lexer.lex_register[lexer.REG_START] | 0;
+    const src_len = lexer.lex_register[lexer.REG_LENGTH] | 0;
+
+    // Intern the identifier bytes into the pool
+    const intern_offset = intern_identifier(src_loc, src_len) | 0;
+
+    // Consume the identifier token
+    lexer.advance();
+
+    // Allocate Identifier node
+    const node = alloc_node(
+        NODE_IDENTIFIER,
+        src_loc | 0,
+        intern_offset | 0,  // data_1: pointer to Intern Pool
+        0                    // data_2: unused
+    );
+
+    return node | 0;
+}
+
+// ============================================================
+// parse_expression_statement()
+// console.log(message);
+// ============================================================
+function parse_expression_statement() {
+    const src_loc = lexer.lex_register[lexer.REG_START] | 0;
+
+    const expr = parse_expression(0) | 0;
+
+    // Consume semicolon if present
+    if ((lexer.lex_register[lexer.REG_TYPE] | 0) === lexer.TOKEN_SEMICOLON) {
+        lexer.advance();
+    }
+
+    const node = alloc_node(
+        NODE_EXPRESSION_STATEMENT,
+        src_loc | 0,
+        expr | 0,  // data_1: the expression
+        0          // data_2: unused
+    );
+
+    return node | 0;
+}
+
+// ============================================================
+// parse_expression(min_bp) — Pratt Parser core
+// ============================================================
+function parse_expression(min_bp) {
+    min_bp = min_bp | 0;
+
+    // Prefix / Atom: parse the left-hand side
+    let left = parse_atom() | 0;
+
+    // Infix loop: check the PEEK token's binding power
+    while (true) {
+        const peek_type = lexer.lex_register[lexer.REG_TYPE] | 0;
+        const bp = get_binding_power(peek_type) | 0;
+
+        if (bp <= min_bp) break;
+
+        if (peek_type === lexer.TOKEN_DOT) {
+            left = parse_member_expression(left) | 0;
+        } else if (peek_type === lexer.TOKEN_LPAREN) {
+            left = parse_call_expression(left) | 0;
+        } else {
+            break;
+        }
+    }
+
+    return left | 0;
+}
+
+// ============================================================
+// parse_atom() — Terminal expression nodes
+// ============================================================
+function parse_atom() {
+    const token_type = lexer.lex_register[lexer.REG_TYPE] | 0;
+    const src_loc = lexer.lex_register[lexer.REG_START] | 0;
+    const src_len = lexer.lex_register[lexer.REG_LENGTH] | 0;
+
+    // Identifier
+    if (token_type === lexer.TOKEN_IDENTIFIER) {
+        return parse_identifier() | 0;
+    }
+
+    // String Literal
+    if (token_type === lexer.TOKEN_STRING) {
+        const intern_offset = intern_string_literal(src_loc, src_len) | 0;
+        lexer.advance();
+        const node = alloc_node(
+            (NODE_LITERAL | FLAG_STRING) | 0,
+            src_loc | 0,
+            intern_offset | 0,  // data_1: Intern Pool offset
+            0
+        );
+        return node | 0;
+    }
+
+    // Number Literal
+    if (token_type === lexer.TOKEN_NUMBER) {
+        const value = ascii_to_int(src_loc, src_len) | 0;
+        lexer.advance();
+        const node = alloc_node(
+            (NODE_LITERAL | FLAG_NUMBER) | 0,
+            src_loc | 0,
+            value | 0,  // data_1: inline numeric value
+            0
+        );
+        return node | 0;
+    }
+
+    throw new Error('Unexpected token type ' + token_type + ' at byte offset ' + src_loc);
+}
+
+// ============================================================
+// parse_member_expression(left) — console.log
+// ============================================================
+function parse_member_expression(left) {
+    left = left | 0;
+    const src_loc = lexer.lex_register[lexer.REG_START] | 0;
+
+    // Consume '.'
+    lexer.advance();
+
+    // Parse the right-hand identifier
+    const right = parse_identifier() | 0;
+
+    const node = alloc_node(
+        NODE_MEMBER_EXPRESSION,
+        src_loc | 0,
+        left | 0,   // data_1: object (LHS)
+        right | 0    // data_2: property (RHS)
+    );
+
+    return node | 0;
+}
+
+// ============================================================
+// parse_call_expression(callee) — foo(arg1, arg2)
+// ============================================================
+function parse_call_expression(callee) {
+    callee = callee | 0;
+    const src_loc = lexer.lex_register[lexer.REG_START] | 0;
+
+    // Consume '('
+    lexer.advance();
+
+    // Collect arguments on scratch_stack to avoid interleaving
+    const scratch_base = scratch_cursor | 0;
+    let arg_count = 0;
+
+    while ((lexer.lex_register[lexer.REG_TYPE] | 0) !== lexer.TOKEN_RPAREN &&
+           (lexer.lex_register[lexer.REG_TYPE] | 0) !== lexer.TOKEN_EOF) {
+
+        if (arg_count > 0) {
+            // Consume comma between arguments
+            lexer.expect(lexer.TOKEN_COMMA);
+        }
+
+        // Reserve a scratch slot for this arg
+        scratch_cursor = (scratch_base + arg_count + 1) | 0;
+        const arg = parse_expression(0) | 0;
+        scratch_stack[(scratch_base + arg_count) | 0] = arg | 0;
+        arg_count = (arg_count + 1) | 0;
+    }
+
+    // Consume ')'
+    lexer.expect(lexer.TOKEN_RPAREN);
+
+    // Batch-push args to ast_extra after all nested parsing is done
+    const extra_start = extra_cursor | 0;
+    for (let i = 0; i < arg_count; i = (i + 1) | 0) {
+        push_extra(scratch_stack[(scratch_base + i) | 0] | 0);
+    }
+
+    // Restore scratch cursor
+    scratch_cursor = scratch_base | 0;
+
+    // Pack arg_count into bits 16-31 of type_and_flags
+    const node = alloc_node(
+        (NODE_CALL_EXPRESSION | (arg_count << 16)) | 0,
+        src_loc | 0,
+        callee | 0,        // data_1: callee node
+        extra_start | 0    // data_2: ast_extra offset for args
+    );
+
+    return node | 0;
+}
+
+// ============================================================
+// Public API
+// ============================================================
+function get_ast_nodes()   { return ast_nodes; }
+function get_ast_extra()   { return ast_extra; }
+function get_intern_pool() { return intern_pool; }
+function get_ast_cursor()  { return ast_cursor | 0; }
+function get_extra_cursor() { return extra_cursor | 0; }
+function get_intern_cursor() { return intern_cursor | 0; }
+
+module.exports = {
+    parse,
+
+    // Arena accessors
+    get_ast_nodes,
+    get_ast_extra,
+    get_intern_pool,
+    get_ast_cursor,
+    get_extra_cursor,
+    get_intern_cursor,
+
+    // Node Type Enums
+    NODE_PROGRAM,
+    NODE_VARIABLE_DECLARATION,
+    NODE_VARIABLE_DECLARATOR,
+    NODE_IDENTIFIER,
+    NODE_LITERAL,
+    NODE_CALL_EXPRESSION,
+    NODE_EXPRESSION_STATEMENT,
+    NODE_MEMBER_EXPRESSION,
+
+    // Flags
+    FLAG_CONST, FLAG_LET, FLAG_VAR,
+    FLAG_STRING, FLAG_NUMBER, FLAG_COMPUTED,
+
+    // Struct layout
+    SLOT_TYPE_FLAGS, SLOT_SOURCE_LOC, SLOT_DATA_1, SLOT_DATA_2,
+    NODE_SIZE_SLOTS,
+};

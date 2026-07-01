@@ -1,0 +1,186 @@
+// compiler/src/core/arena.ohn
+
+const ARENA_SIZE = 16 * 1024 * 1024; // 16 MB
+const HASHTABLE_SIZE = 8 * 1024 * 1024; // 8 MB
+const MAX_ENTRIES = (HASHTABLE_SIZE / 16) | 0; // 524,288 slots
+const LOAD_FACTOR_LIMIT = (MAX_ENTRIES * 0.7) | 0;
+
+const arenaPool = [];
+
+class ScopeArena {
+    constructor(parent = null) {
+        this.buffer = new ArrayBuffer(ARENA_SIZE);
+        // Map Int32Array strictly to avoid SMI traps and HeapNumber allocations
+        this.u32 = new Int32Array(this.buffer, 0, HASHTABLE_SIZE / 4);
+        this.u8 = new Uint8Array(this.buffer, HASHTABLE_SIZE, ARENA_SIZE - HASHTABLE_SIZE);
+        this.parent = parent;
+        this.reset();
+    }
+
+    reset() {
+        // Zero-allocation reset (no GC destruction)
+        this.u32.fill(0);
+        this.string_cursor = 1; // start at 1 so key_offset=0 means empty slot
+        this.occupied_count = 0;
+    }
+}
+
+function allocateScope(parent = null) {
+    if (arenaPool.length > 0) {
+        const arena = arenaPool.pop();
+        arena.parent = parent;
+        arena.reset();
+        return arena;
+    }
+    return new ScopeArena(parent);
+}
+
+function freeScope(arena) {
+    arena.parent = null;
+    arenaPool.push(arena);
+}
+
+// SMI-Safe Hash utilizing Math.imul
+function fnv1a(sourceBuffer, offset, length) {
+    let hash = 2166136261 | 0;
+    const end = (offset + length) | 0;
+    for (let i = offset | 0; i < end; i = (i + 1) | 0) {
+        hash = (hash ^ sourceBuffer[i]) | 0;
+        hash = Math.imul(hash, 16777619) | 0;
+    }
+    return hash | 0; // strictly signed 32-bit SMI
+}
+
+// Zero-allocation manual byte match
+function compareStrings(arenaU8, internOffset, sourceBuffer, sourceOffset, sourceLength) {
+    internOffset = internOffset | 0;
+    sourceOffset = sourceOffset | 0;
+    sourceLength = sourceLength | 0;
+    
+    // Validate null terminator matches length
+    if (arenaU8[(internOffset + sourceLength) | 0] !== 0) {
+        return false;
+    }
+    
+    // Exact byte-by-byte match
+    for (let i = 0; i < sourceLength; i = (i + 1) | 0) {
+        if (arenaU8[(internOffset + i) | 0] !== sourceBuffer[(sourceOffset + i) | 0]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Open Addressing Linear Probe
+function probe(arena, sourceBuffer, sourceOffset, sourceLength, hash) {
+    // Wrap to fit within MAX_ENTRIES using bitwise modulo trick since it's a power of 2, 
+    // or standard JS modulo if we just want safety. Using standard JS modulo with bitwise unsigned shift.
+    let index = (hash >>> 0) % MAX_ENTRIES; 
+    index = index | 0;
+    
+    const u32 = arena.u32;
+    const u8 = arena.u8;
+    
+    while (true) {
+        const structBase = (index * 4) | 0;
+        const key_offset = u32[structBase] | 0;
+        
+        // Empty slot found
+        if (key_offset === 0) {
+            return index | 0; 
+        }
+        
+        // Collision or Match?
+        const slot_hash = u32[(structBase + 1) | 0] | 0;
+        if (slot_hash === hash) {
+            if (compareStrings(u8, key_offset, sourceBuffer, sourceOffset, sourceLength)) {
+                return index | 0; // Exact match found
+            }
+        }
+        
+        // Linear probe next slot
+        index = (index + 1) % MAX_ENTRIES;
+        index = index | 0;
+    }
+}
+
+function insertSymbol(arena, sourceBuffer, sourceOffset, sourceLength, symbolFlags, nodeRef) {
+    sourceOffset = sourceOffset | 0;
+    sourceLength = sourceLength | 0;
+    symbolFlags = symbolFlags | 0;
+    nodeRef = nodeRef | 0;
+    
+    if (arena.occupied_count >= LOAD_FACTOR_LIMIT) {
+        throw new Error("Arena Capacity Exceeded (Needs 32MB Rehashing)");
+    }
+    
+    const hash = fnv1a(sourceBuffer, sourceOffset, sourceLength);
+    const index = probe(arena, sourceBuffer, sourceOffset, sourceLength, hash);
+    
+    const structBase = (index * 4) | 0;
+    const u32 = arena.u32;
+    
+    // Check if empty
+    if (u32[structBase] === 0) {
+        // We need to intern the string
+        const internOffset = arena.string_cursor | 0;
+        
+        const u8 = arena.u8;
+        for (let i = 0; i < sourceLength; i = (i + 1) | 0) {
+            u8[(internOffset + i) | 0] = sourceBuffer[(sourceOffset + i) | 0];
+        }
+        // Null terminator
+        u8[(internOffset + sourceLength) | 0] = 0;
+        
+        // Advance cursor
+        arena.string_cursor = (internOffset + sourceLength + 1) | 0;
+        
+        // Write struct (16-bytes mapped across 4 Int32s)
+        u32[structBase] = internOffset | 0;
+        u32[(structBase + 1) | 0] = hash | 0;
+        u32[(structBase + 2) | 0] = symbolFlags | 0;
+        u32[(structBase + 3) | 0] = nodeRef | 0;
+        
+        arena.occupied_count = (arena.occupied_count + 1) | 0;
+    } else {
+        // Overwriting existing symbol in current scope
+        u32[(structBase + 2) | 0] = symbolFlags | 0;
+        u32[(structBase + 3) | 0] = nodeRef | 0;
+    }
+    
+    return nodeRef | 0;
+}
+
+// Lexical Scope Traversal
+function lookupSymbol(arena, sourceBuffer, sourceOffset, sourceLength, hash) {
+    // If hash not provided, calculate it once
+    if (hash === undefined) {
+        hash = fnv1a(sourceBuffer, sourceOffset, sourceLength);
+    }
+    hash = hash | 0;
+    
+    let currentArena = arena;
+    while (currentArena !== null) {
+        const index = probe(currentArena, sourceBuffer, sourceOffset, sourceLength, hash);
+        const structBase = (index * 4) | 0;
+        
+        // If not empty, we found it!
+        if (currentArena.u32[structBase] !== 0) {
+            return currentArena.u32[(structBase + 3) | 0] | 0;
+        }
+        
+        // Cache miss in this scope, traverse up the lexical chain
+        currentArena = currentArena.parent;
+    }
+    
+    // Not found in any scope
+    return -1;
+}
+
+module.exports = {
+    allocateScope,
+    freeScope,
+    insertSymbol,
+    lookupSymbol,
+    fnv1a
+};

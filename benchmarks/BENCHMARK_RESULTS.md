@@ -19,6 +19,85 @@ This document serves as the definitive proof of these performance gains across b
 
 Ohnrscript is not a schemaless document parser; it is a **compiled schema validation protocol** that happens to use CBOR as its wire format. In traditional parsers, checking if a number is a 1-byte integer or an 8-byte float requires dynamic branching and object allocation at runtime. We eliminate that overhead entirely.
 
+By annotating a property as a `number`, the developer is establishing a strict `int32` contract. The AOT compiler bakes that 5-byte fixed contract directly into a branchless byte-offset loop. If the payload violates that contract (e.g., trying to pass a float or overflowing the 32-bit boundary), Ohnrscript intentionally throws a validation error rather than silently corrupting it.
+
+---
+
+## 1. The Industry Standard: Protobuf (protobufjs) vs Ohnrscript
+
+### Methodology
+- **Architecture:** 1 orchestrator script spanning 2 totally isolated Node.js child processes (preventing IC cross-contamination).
+- **Operations:** 1,000,000 deserialization iterations per framework.
+- **Escape Analysis:** Objects were parsed, their `duration_ms` was summed, and the object was immediately discarded to explicitly allow V8 Scalar Replacement (perfectly mirroring the real-world load test environment).
+- **Environment:** Node.js V8 with `--expose-gc` and explicit `global.gc()` tracking strictly the exact parsing loop block.
+
+### Results: Time to Usable Data (1,000,000 iterations)
+
+**First Round (Using `Buffer.toString()` C++ Boundary)**
+- **Protobuf (protobufjs):** ~703.72 ms
+- **Ohnrscript (@cbor AOT):** ~3303.33 ms
+- **Speedup:** Protobuf is ~4.7x faster for string-heavy decoding.
+
+**Second Round (Using Pure-JS `_readString` Loop)**
+- **Protobuf (protobufjs):** ~696.54 ms
+- **Ohnrscript (@cbor AOT):** ~2730.72 ms
+- **Speedup:** Protobuf is ~3.9x faster for string-heavy decoding.
+- **Analysis:** By replacing the Node.js `Buffer.toString('utf8')` C++ boundary crossing with a pure JavaScript, bounds-checked UTF-8 decoding loop, Ohnrscript recovered ~17% of its absolute execution time (a 572 ms reduction).
+
+**Third Round (Pure-JS `toCBOR` Serialization Optimization)**
+- **Protobuf (protobufjs):** ~689.94 ms
+- **Ohnrscript (@cbor AOT):** ~2682.35 ms
+- **Speedup:** Protobuf is ~3.8x faster for string-heavy decoding.
+- **Analysis:** By injecting highly optimized `_utf8ByteLength` and `_writeString` static methods alongside `_readString`, Turbofan generated a completely monomorphic "Hidden Class" (Shape) for the AOT plugin. This V8 JIT stability allowed Ohnrscript to shave off an extra 48ms, officially breaking the 2-microsecond barrier per request (Ohnrscript: 2.68 µs vs Protobuf: 0.69 µs = a 1.99 µs gap).
+
+### Results: Heap Memory Delta (Zero-Escape Scope)
+- **Protobuf (protobufjs):** 0.00 MB
+- **Ohnrscript:** 0.00 MB
+- **Efficiency:** Tie (Both achieved perfect V8 Scalar Replacement).
+
+### Conclusion: Punching in the Heavyweight Class
+From a first-principles software engineering perspective, raw execution time (latency) and memory allocation are two very different physics problems in Node.js. 
+
+Node.js runs on a single-threaded event loop. Because the 2,730 ms benchmark represents **1,000,000 iterations**, the actual execution time for Ohnrscript to deserialize a single 40-field payload is **0.0027 milliseconds** (2.7 microseconds), compared to Protobuf's 0.0007 milliseconds. The **0.002 millisecond difference** per request is absolute statistical noise compared to a standard 50-millisecond network round-trip. 
+
+However, **Garbage Collection (GC) is not statistical noise**. If a framework allocates objects on the heap, those objects eventually trigger a "stop-the-world" GC sweep, pausing the event loop for 50-200 milliseconds. As concurrency scales, these GC pauses cascade, causing massive latency spikes and server crashes.
+
+### 1.1 The Developer Experience (DX) Paradigm
+Protobuf was built by Google specifically to solve this exact zero-allocation problem across massive distributed systems. However, to achieve Protobuf's performance in Node.js, engineering teams are forced to:
+1. Stop writing JavaScript.
+2. Learn a completely different domain-specific language (DSL) to write `.proto` schema files.
+3. Install external C++ build tools and Protobuf compilers on their machines.
+4. Run a separate compilation step that generates thousands of lines of unreadable, machine-generated boilerplate code into the repository.
+5. Struggle to map TypeScript types correctly to the generated bindings.
+
+**Ohnrscript achieves this identical, zero-allocation C-level density entirely natively within the language.** 
+Developers simply write a standard, ergonomic JavaScript class using native decorators:
+
+```javascript
+@cbor
+class User {
+  id: number = 0;
+  name: string = "";
+}
+```
+
+The Babel plugin seamlessly intercepts this during the normal build process (like Webpack or Vite) and mathematically fuses the C-struct logic directly into the V8 engine. While `protobufjs` is currently faster at raw string-decoding due to its bespoke varint-length architecture, the benchmarks definitively prove that **Ohnrscript belongs in the heavyweight class of AOT serialization protocols.** It delivers Protobuf-level architecture and physical memory limits without ever forcing developers to leave the comfort and native tooling of standard JavaScript.
+
+---
+
+ipt/TypeScript environments (like Node.js or Deno running on the V8 engine) rely heavily on the Garbage Collector (GC). When parsing data payloads (JSON, CBOR, WebSockets), traditional runtimes instantiate intermediary strings, deeply nested objects, and arrays on the heap. Once validation (e.g., Zod) runs over these objects, it creates even more intermediary representations. This results in severe "Heap Churn," triggering expensive GC pauses that throttle system throughput.
+
+**The Ohnrscript Solution:** Ohnrscript leverages an Ahead-of-Time (AOT) compiler built on Babel AST manipulation. It intercepts class schema definitions and replaces them with static byte-offset read/write operations targeting raw `Uint8Array` memory buffers. 
+*   **Zero-Allocation Decoding:** Data is never instantiated as an object tree. Getters read directly from raw memory using `DataView` or typed arrays.
+*   **AOT Validation:** Schema validation rules (like length bounds or integer max/min limits) are fused directly into the byte-offset read cycle. The system validates the data *as it decodes it*, mathematically proving it bypasses standard validation overhead.
+*   **Memory Mapping:** For large numerical datasets (like AI Vectors), Ohnrscript maps an underlying C++ Buffer slice directly to a `Float32Array` without copying the data loop-by-loop.
+
+This document serves as the definitive proof of these performance gains across both macro-architectural pipelines and micro-package libraries. All benchmarks were executed with `--expose-gc` explicitly invoked to track accurate heap deltas.
+
+### Design Philosophy: Compiled Protocol vs Document Parser
+
+Ohnrscript is not a schemaless document parser; it is a **compiled schema validation protocol** that happens to use CBOR as its wire format. In traditional parsers, checking if a number is a 1-byte integer or an 8-byte float requires dynamic branching and object allocation at runtime. We eliminate that overhead entirely.
+
 By annotating a property as a \`number\`, the developer is establishing a strict \`int32\` contract. The AOT compiler bakes that 5-byte fixed contract directly into a branchless byte-offset loop. If the payload violates that contract (e.g., trying to pass a float or overflowing the 32-bit boundary), Ohnrscript intentionally throws a validation error rather than silently corrupting it.
 
 If a developer specifically needs 64-bit floats, they would use an explicit schema annotation like \`@type('float64')\`, which the compiler would unroll into a fixed 9-byte float validation block. We trade dynamic flexibility for physical memory-bandwidth speeds.
@@ -29,7 +108,7 @@ If a developer specifically needs 64-bit floats, they would use an explicit sche
 
 These benchmarks test Ohnrscript acting as a complete microservice/API pipeline, combining parsing, validation, and object generation.
 
-### 1.1 The API Multiplier Effect
+### 4.1 The API Multiplier Effect
 *Simulates a microservice endpoint: 1) Parse CBOR 2) Validate Schema 3) Generate UUID.*
 * **Standard Stack (cbor-x + Zod + uuid):**
   * Time: 430.13 ms
@@ -39,7 +118,7 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
   * Heap Memory Delta: 3.38 MB
 * **Scientific Conclusion:** **3.23x Speedup** and **6.40 MB less heap churn per 1M requests.** By fusing validation and parsing, Ohnrscript entirely bypasses the Zod intermediary tree overhead.
 
-### 1.2 Registration Payload Benchmark
+### 4.2 Registration Payload Benchmark
 *Simulates AOT parsing on a massive 40-field payload.*
 **First Round (`Buffer.toString()`)**
 * **Standard CBOR Library:** 2832.69 ms
@@ -57,7 +136,7 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
 * **Result:** **13.34x Speedup.** 
 * **Scientific Conclusion:** The execution time slightly increased from the Second Round because Ohnrscript is now calculating mathematically correct variable-byte UTF-8 string encoding across 100,000 iterations (rather than a naive ASCII truncator). This completely fixes non-ASCII/Emoji serialization corruption while maintaining elite, 0.00 MB zero-allocation speeds.
 
-### 1.3 High-Dimensional AI Vectors (Zero-Copy)
+### 4.3 High-Dimensional AI Vectors (Zero-Copy)
 *Parsing 100,000 High-Dimensional AI Vectors (1536 floats).*
 
 * **Standard JSON.parse (Text Baseline):** 12891.36 ms
@@ -69,7 +148,7 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
 
 *(Note on Heap Deltas: The "Zero-Copy" method reports a higher heap delta than the "Memory-Safe" copy because creating 100,000 distinct \`Float32Array\` views over a single global \`ArrayBuffer\` alters V8's minor-GC (scavenge) cadence compared to generating fresh, rapidly-discarded C++ slices. Both represent trivial allocation churn compared to the JSON baseline).*
 
-### 1.4 Memory Explosion & The V8 String Limit
+### 4.4 Memory Explosion & The V8 String Limit
 *Attempting to load a massive 614 MB vector payload into memory.*
 
 **Test Conditions:**
@@ -87,7 +166,7 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
 * **Heap Memory Delta:** **0.07 MB**
 * **Scientific Conclusion:** Ohnrscript effortlessly processed the 614 MB payload. By reading the binary file into an off-heap C++ `Buffer` and using the Zero-Copy `mapVector()` memory lens, Ohnrscript completely bypassed V8's string limits and garbage collector. The V8 heap stayed practically at 0.00 MB. This mathematically proves Ohnrscript allows Node.js to achieve Out-of-Core Execution and process datasets far larger than the physical RAM limits of the JavaScript VM.
 
-### 1.5 Real-World Implication: The AI RAG Architecture Crisis
+### 3.5 Real-World Implication: The AI RAG Architecture Crisis
 The memory explosion test above uses vectors of exactly `1,536` dimensions—this is not a random number. It is the exact dimensional size of an OpenAI `text-embedding-3-small` embedding. 
 
 In a modern Retrieval-Augmented Generation (RAG) AI pipeline, a Vector Database might return 10,000 embeddings to a Node.js backend to perform a similarity search. 
@@ -98,11 +177,11 @@ In a modern Retrieval-Augmented Generation (RAG) AI pipeline, a Vector Database 
 
 ---
 
-## 2. Standard Library & Package Micro-Benchmarks
+## 3. Standard Library & Package Micro-Benchmarks
 
 These tests isolate specific operations (like WebSocket parsing or UUID generation) to prove the effectiveness of Ohnrscript's primitive standard library.
 
-### 2.1 CBOR Parsing (`ohn-cbor`)
+### 4.1 CBOR Parsing (`ohn-cbor`)
 **First Round (`Buffer.toString()`)**
 * **Standard cbor library:** 646.84 ms
 * **Ohnrscript AOT CBOR:** 48.84 ms
@@ -113,7 +192,7 @@ These tests isolate specific operations (like WebSocket parsing or UUID generati
 * **Ohnrscript AOT CBOR:** 50.40 ms
 * **Result:** **11.23x faster.** (Essentially identical, as this benchmark runs 10x fewer iterations and decodes very small strings where C++ boundary overhead is minimal).
 
-### 2.2 Zod vs AOT Schema Validation (`ohn-zod`)
+### 4.2 Zod vs AOT Schema Validation (`ohn-zod`)
 *Tests malicious payloads scaling to 1,000,000 iterations.*
 **First Round (`Buffer.toString()`)**
 * **Standard Zod + cbor-x:**
@@ -133,7 +212,7 @@ These tests isolate specific operations (like WebSocket parsing or UUID generati
   * Heap Memory Delta: 12.13 MB
 * **Result:** Identical. Ohnrscript validates lengths and throws *before* allocating memory or parsing the string. The slow string reader is bypassed entirely during malicious paths, proving the bounds-checking is flawless.
 
-### 2.3 WebSocket Frame Parsing (`ohn-ws`)
+### 4.3 WebSocket Frame Parsing (`ohn-ws`)
 *Pre-allocated 500,000 frames testing in-place mutation.*
 **First Round**
 * **Standard `ws` package:** 170.16 ms (Heap Delta: 14.28 MB)
@@ -145,21 +224,19 @@ These tests isolate specific operations (like WebSocket parsing or UUID generati
 * **Ohnrscript parseFrame:** 74.13 ms (Heap Delta: 1.05 MB)
 * **Result:** **2.34x faster** (improved from 2.00x). 
 
-### 2.4 Cryptographic UUID Generation (`ohn-uuid`)
+### 4.4 Cryptographic UUID Generation (`ohn-uuid`)
 *Generation of 5,000,000 UUIDs.*
 **First Round**
-* **Native C++ (`libuuid`):** 1276.75 ms
 * **Standard JS UUID (raw bytes):** 5405.25 ms
 * **Ohnrscript (Zero-Allocation raw bytes):** 124.07 ms
-* **Result:** **43.56x faster than standard JS**, and remarkably, **10x faster than Native C++ libuuid**. Ohnrscript accomplishes this by pre-allocating a static buffer pool and writing random bytes directly via `crypto.getRandomValues`, circumventing standard string formatting overhead.
+* **Result:** **43.56x faster than the standard `uuid` package.** Ohnrscript accomplishes this by pre-allocating a static buffer pool and writing random bytes directly via `crypto.getRandomValues` in pure JS, no native addon required.
 
 **Second Round**
-* **Native C++ (`libuuid`):** 1154.19 ms
 * **Standard JS UUID (raw bytes):** 5404.62 ms
 * **Ohnrscript (Zero-Allocation raw bytes):** 119.43 ms
-* **Result:** **45.25x faster than standard JS**.
+* **Result:** **45.25x faster than standard JS.**
 
-### 2.5 Cookie Parsing (`ohn-cookie`)
+### 3.5 Cookie Parsing (`ohn-cookie`)
 *Extracting specific cookie values from a 220 byte payload over 2,000,000 iterations.*
 **First Round**
 * **Standard `cookie` package:** 1791.33 ms (Heap Delta: 0.86 MB)
@@ -173,24 +250,24 @@ These tests isolate specific operations (like WebSocket parsing or UUID generati
 
 ---
 
-## 3. Network Concurrency Server Architecture
+## 4. Network Concurrency Server Architecture
 
 To ensure a scientifically rigorous and unbiased evaluation of the API Multiplier Effect under concurrency, we constructed a raw Node.js HTTP server (`api-multiplier-server.js`). The environment was deliberately built to eliminate external framework interference.
 
-### 3.1 Framework Isolation
+### 4.1 Framework Isolation
 We eschewed heavy frameworks like Express or Fastify. These frameworks introduce their own routing overhead, middleware cascades, and object instantiations that would pollute the heap tracking. By using the raw built-in `http` module, we isolated the memory and event-loop measurements exclusively to the parsing, validation, and UUID generation steps.
 
-### 3.2 Apples-to-Apples Routing
+### 4.2 Apples-to-Apples Routing
 The server exposes two identical POST endpoints:
 *   `/api/standard` (cbor-x + Zod + uuid)
 *   `/api/ohnrscript` (AOT Validation + Zero-Alloc UUID)
 
 Both endpoints receive the exact same raw binary HTTP request body buffer (`Buffer.concat(chunks)`), ensuring the ingestion mechanism is perfectly symmetrical. 
 
-### 3.3 Unified Response Cycle
+### 4.3 Unified Response Cycle
 After performing their respective workloads, both endpoints immediately return a simple HTTP 200 `text/plain` response and close the connection. Crucially, the response is *not* serialized back to JSON or CBOR. This enforces strict isolation: we are measuring only the ingestion, parsing, and validation GC overhead, without confounding the data with serialization heap churn.
 
-### 3.4 Isolated Memory & Event Loop Tracking
+### 4.4 Isolated Memory & Event Loop Tracking
 The server operates an independent memory profiler running on a 5-second `setInterval`. It logs:
 1.  **Heap Delta:** `process.memoryUsage().heapUsed` to track the cascading effect of garbage collection.
 2.  **Event-Loop Lag:** Using the native `perf_hooks.monitorEventLoopDelay()`, it logs the mean and maximum nanosecond delay of the event loop.
@@ -199,7 +276,7 @@ By writing these metrics to a background CSV file (`server-memory-log.csv`), we 
 
 ---
 
-## 3. Network Concurrency (Real-World I/O)
+## 5. Network Concurrency (Real-World I/O)
 
 To scientifically prove Ohnrscript's zero-allocation architecture prevents Garbage Collection (GC) pauses under extreme event-loop pressure, we assaulted the HTTP server using `autocannon`.
 
@@ -247,7 +324,7 @@ Ohnrscript provides empirical, repeatable evidence that a JavaScript-syntax lang
 
 ---
 
-## 5. V8 Engine Tracing Methodology
+## 6. V8 Engine Tracing Methodology
 
 To provide mathematically rigorous proof of Ohnrscript's zero-allocation performance and JIT optimization behavior, a specialized benchmarking script (\`v8-tracing-benchmark.js\`) was engineered leveraging Node.js internal V8 tracking capabilities.
 
@@ -273,7 +350,7 @@ The resulting stderr streams are captured into dedicated log files (\`v8-trace-s
 
 ---
 
-## 6. JIT Optimization Results & Deoptimization Counts
+## 7. JIT Optimization Results & Deoptimization Counts
 
 By analyzing the V8 telemetry logs (\`--trace-ic\`, \`--trace-opt\`, and \`--trace-deopt\`), we can mathematically quantify why the Standard Stack suffers from severe tail latencies, and why Ohnrscript achieves near bare-metal C++ speeds. 
 
@@ -293,62 +370,3 @@ A "bailout" occurs when Turbofan generates optimized machine code, but a subsequ
 
 This proves that Ohnrscript does not merely process data faster—it fundamentally alters the generated bytecode so that the V8 JIT compiler can maintain an unbroken, monomorphic execution state without the penalty of polymorphic thrashing or deoptimization bailouts.
 
-## 7. The Industry Standard: Protobuf (protobufjs) vs Ohnrscript
-
-### Methodology
-- **Architecture:** 1 orchestrator script spanning 2 totally isolated Node.js child processes (preventing IC cross-contamination).
-- **Operations:** 1,000,000 deserialization iterations per framework.
-- **Escape Analysis:** Objects were parsed, their `duration_ms` was summed, and the object was immediately discarded to explicitly allow V8 Scalar Replacement (perfectly mirroring the real-world load test environment).
-- **Environment:** Node.js V8 with `--expose-gc` and explicit `global.gc()` tracking strictly the exact parsing loop block.
-
-### Results: Time to Usable Data (1,000,000 iterations)
-
-**First Round (Using `Buffer.toString()` C++ Boundary)**
-- **Protobuf (protobufjs):** ~703.72 ms
-- **Ohnrscript (@cbor AOT):** ~3303.33 ms
-- **Speedup:** Protobuf is ~4.7x faster for string-heavy decoding.
-
-**Second Round (Using Pure-JS `_readString` Loop)**
-- **Protobuf (protobufjs):** ~696.54 ms
-- **Ohnrscript (@cbor AOT):** ~2730.72 ms
-- **Speedup:** Protobuf is ~3.9x faster for string-heavy decoding.
-- **Analysis:** By replacing the Node.js `Buffer.toString('utf8')` C++ boundary crossing with a pure JavaScript, bounds-checked UTF-8 decoding loop, Ohnrscript recovered ~17% of its absolute execution time (a 572 ms reduction).
-
-**Third Round (Pure-JS `toCBOR` Serialization Optimization)**
-- **Protobuf (protobufjs):** ~689.94 ms
-- **Ohnrscript (@cbor AOT):** ~2682.35 ms
-- **Speedup:** Protobuf is ~3.8x faster for string-heavy decoding.
-- **Analysis:** By injecting highly optimized `_utf8ByteLength` and `_writeString` static methods alongside `_readString`, Turbofan generated a completely monomorphic "Hidden Class" (Shape) for the AOT plugin. This V8 JIT stability allowed Ohnrscript to shave off an extra 48ms, officially breaking the 2-microsecond barrier per request (Ohnrscript: 2.68 µs vs Protobuf: 0.69 µs = a 1.99 µs gap).
-
-### Results: Heap Memory Delta (Zero-Escape Scope)
-- **Protobuf (protobufjs):** 0.00 MB
-- **Ohnrscript:** 0.00 MB
-- **Efficiency:** Tie (Both achieved perfect V8 Scalar Replacement).
-
-### Conclusion: Punching in the Heavyweight Class
-From a first-principles software engineering perspective, raw execution time (latency) and memory allocation are two very different physics problems in Node.js. 
-
-Node.js runs on a single-threaded event loop. Because the 2,730 ms benchmark represents **1,000,000 iterations**, the actual execution time for Ohnrscript to deserialize a single 40-field payload is **0.0027 milliseconds** (2.7 microseconds), compared to Protobuf's 0.0007 milliseconds. The **0.002 millisecond difference** per request is absolute statistical noise compared to a standard 50-millisecond network round-trip. 
-
-However, **Garbage Collection (GC) is not statistical noise**. If a framework allocates objects on the heap, those objects eventually trigger a "stop-the-world" GC sweep, pausing the event loop for 50-200 milliseconds. As concurrency scales, these GC pauses cascade, causing massive latency spikes and server crashes.
-
-### The Developer Experience (DX) Paradigm
-Protobuf was built by Google specifically to solve this exact zero-allocation problem across massive distributed systems. However, to achieve Protobuf's performance in Node.js, engineering teams are forced to:
-1. Stop writing JavaScript.
-2. Learn a completely different domain-specific language (DSL) to write `.proto` schema files.
-3. Install external C++ build tools and Protobuf compilers on their machines.
-4. Run a separate compilation step that generates thousands of lines of unreadable, machine-generated boilerplate code into the repository.
-5. Struggle to map TypeScript types correctly to the generated bindings.
-
-**Ohnrscript achieves this identical, zero-allocation C-level density entirely natively within the language.** 
-Developers simply write a standard, ergonomic JavaScript class using native decorators:
-
-```javascript
-@cbor
-class User {
-  id: number = 0;
-  name: string = "";
-}
-```
-
-The Babel plugin seamlessly intercepts this during the normal build process (like Webpack or Vite) and mathematically fuses the C-struct logic directly into the V8 engine. While `protobufjs` is currently faster at raw string-decoding due to its bespoke varint-length architecture, the benchmarks definitively prove that **Ohnrscript belongs in the heavyweight class of AOT serialization protocols.** It delivers Protobuf-level architecture and physical memory limits without ever forcing developers to leave the comfort and native tooling of standard JavaScript.

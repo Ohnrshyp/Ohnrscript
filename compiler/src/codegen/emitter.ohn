@@ -1,0 +1,77 @@
+const fs = require('fs');
+
+const BUFFER_SIZE = 1024 * 1024; // 1 MB chunk
+
+class Emitter {
+    constructor(outputPath) {
+        this.outputPath = outputPath;
+        // Open file strictly for writing (creates if not exists, truncates if exists)
+        this.fd = fs.openSync(this.outputPath, 'w');
+        
+        // Grab a 1MB memory slab completely outside the V8 heap
+        this.buffer = Buffer.allocUnsafe(BUFFER_SIZE);
+        this.cursor = 0;
+    }
+
+    /**
+     * Appends raw bytes directly to the ring buffer. 
+     * Flushes to disk synchronously if the buffer exceeds 1MB.
+     * 
+     * @param {Buffer|Uint8Array} byteBuffer The raw UTF-8 bytes to emit
+     * @param {number} offset Start index in byteBuffer
+     * @param {number} length Number of bytes to copy
+     */
+    emit(byteBuffer, offset, length) {
+        // If the incoming bytes fit perfectly in the remainder of our 1MB chunk
+        if (this.cursor + length <= BUFFER_SIZE) {
+            // Block copy over to the unsafe buffer
+            this.buffer.set(byteBuffer.subarray(offset, offset + length), this.cursor);
+            this.cursor += length;
+            return;
+        }
+
+        // If it overflows the 1MB chunk, we must flush what we have
+        
+        // Step 1: Fill the remainder of the buffer
+        const remainderSpace = BUFFER_SIZE - this.cursor;
+        if (remainderSpace > 0) {
+            this.buffer.set(byteBuffer.subarray(offset, offset + remainderSpace), this.cursor);
+        }
+
+        // Step 2: Flush the perfectly full 1MB buffer directly to disk (Zero V8 String allocation)
+        fs.writeSync(this.fd, this.buffer, 0, BUFFER_SIZE);
+
+        // Step 3: Handle the remaining incoming bytes
+        let remainingLength = length - remainderSpace;
+        let currentOffset = offset + remainderSpace;
+
+        // If the remaining payload itself is somehow larger than 1MB (e.g. massive base64 string)
+        // we write it in 1MB chunks directly
+        while (remainingLength >= BUFFER_SIZE) {
+            fs.writeSync(this.fd, byteBuffer, currentOffset, BUFFER_SIZE);
+            currentOffset += BUFFER_SIZE;
+            remainingLength -= BUFFER_SIZE;
+        }
+
+        // Step 4: Write any final dangling bytes to the start of our reset ring buffer
+        if (remainingLength > 0) {
+            this.buffer.set(byteBuffer.subarray(currentOffset, currentOffset + remainingLength), 0);
+            this.cursor = remainingLength;
+        } else {
+            this.cursor = 0;
+        }
+    }
+
+    /**
+     * Flushes any remaining bytes in the buffer to disk and closes the file descriptor.
+     */
+    flush() {
+        if (this.cursor > 0) {
+            fs.writeSync(this.fd, this.buffer, 0, this.cursor);
+            this.cursor = 0;
+        }
+        fs.closeSync(this.fd);
+    }
+}
+
+module.exports = { Emitter };

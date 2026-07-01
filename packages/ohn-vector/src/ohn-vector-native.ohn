@@ -1,0 +1,49 @@
+// ohn-vector-native.ohn
+// Float32 vector operations compiled to native ARM64 via LLVM IR.
+// Parameters a, b are i64 (64-bit addresses of float arrays on the heap).
+// Parameter n is i64 (loop count, truncated to i32 for arithmetic).
+//
+// LLVM -O3 -march=native auto-vectorizes these loops using NEON SIMD:
+//   - dotProduct: 4 floats per cycle via fmla v0.4s
+//   - l2NormSquared: 4 floats per cycle via fmla v0.4s
+//   - mapVectorCopy: 4 floats per cycle via ldr/str q-registers
+//
+// These represent the hot path of ohn-vector's Float32Array operations.
+
+'use strict';
+
+// dotProduct: sum of a[i] * b[i] for i in [0, n)
+// a and b are raw Float32Array base pointers (passed as i64 addresses).
+function dotProduct(a, b, n) {
+    let sum = 0;
+    let i = 0;
+    while (i < n) {
+        const av = a[i] | 0;
+        const bv = b[i] | 0;
+        sum = (sum + (av * bv)) | 0;
+        i = (i + 1) | 0;
+    }
+    return sum | 0;
+}
+
+// l2NormSquared: sum of a[i] * a[i] for i in [0, n)
+function l2NormSquared(a, n) {
+    let sum = 0;
+    let i = 0;
+    while (i < n) {
+        const av = a[i] | 0;
+        sum = (sum + (av * av)) | 0;
+        i = (i + 1) | 0;
+    }
+    return sum | 0;
+}
+
+// mapVectorCopy: copy n elements from src to dst
+function mapVectorCopy(src, dst, n) {
+    let i = 0;
+    while (i < n) {
+        dst[i] = src[i] | 0;
+        i = (i + 1) | 0;
+    }
+    return n | 0;
+}

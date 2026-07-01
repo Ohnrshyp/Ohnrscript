@@ -1,0 +1,967 @@
+// compiler/src/codegen/generator.ohn
+// Zero-Allocation DOD Code Generator for the Ohnrscript Self-Hosted Compiler
+// Walks the packed AST arenas and emits JavaScript source code.
+//
+// CRITICAL CONSTRAINT: No string concatenation in the hot path!
+// All static text is pre-allocated as Uint8Array buffers.
+// All output flows through emitter.emit(buffer, offset, length).
+
+'use strict';
+
+const emitter_mod = require('./emitter.ohn');
+const Emitter = emitter_mod.Emitter;
+
+// ============================================================
+// Pre-allocated Static Keyword Buffers (Zero-Copy I/O)
+// ============================================================
+const KW_USE_STRICT     = Buffer.from("'use strict';\n\n");
+const KW_CONST          = Buffer.from('const ');
+const KW_LET            = Buffer.from('let ');
+const KW_VAR            = Buffer.from('var ');
+const KW_FUNCTION       = Buffer.from('function ');
+const KW_IF             = Buffer.from('if (');
+const KW_ELSE           = Buffer.from(' else ');
+const KW_ELSE_IF        = Buffer.from(' else if (');
+const KW_WHILE          = Buffer.from('while (');
+const KW_FOR            = Buffer.from('for (');
+const KW_RETURN         = Buffer.from('return');
+const KW_RETURN_SPACE   = Buffer.from('return ');
+const KW_THROW          = Buffer.from('throw ');
+const KW_BREAK          = Buffer.from('break');
+const KW_CONTINUE       = Buffer.from('continue');
+const KW_NEW            = Buffer.from('new ');
+const KW_CLASS          = Buffer.from('class ');
+const KW_TYPEOF         = Buffer.from('typeof ');
+const KW_THIS           = Buffer.from('this');
+const KW_TRUE           = Buffer.from('true');
+const KW_FALSE          = Buffer.from('false');
+const KW_NULL           = Buffer.from('null');
+const KW_UNDEFINED      = Buffer.from('undefined');
+
+// Punctuation buffers
+const CH_ASSIGN         = Buffer.from(' = ');
+const CH_SEMICOLON      = Buffer.from(';\n');
+const CH_SEMICOLON_ONLY = Buffer.from(';');
+const CH_COMMA          = Buffer.from(', ');
+const CH_COMMA_NL       = Buffer.from(',\n');
+const CH_DOT            = Buffer.from('.');
+const CH_COLON          = Buffer.from(': ');
+const CH_LPAREN         = Buffer.from('(');
+const CH_RPAREN         = Buffer.from(')');
+const CH_LBRACE         = Buffer.from(' {\n');
+const CH_RBRACE_NL      = Buffer.from('}\n');
+const CH_LBRACKET       = Buffer.from('[');
+const CH_RBRACKET       = Buffer.from(']');
+const CH_QUESTION_SPACE = Buffer.from(' ? ');
+const CH_COLON_SPACE    = Buffer.from(' : ');
+const CH_SPACE          = Buffer.from(' ');
+const CH_NEWLINE        = Buffer.from('\n');
+const CH_DQUOTE         = Buffer.from('"');
+const CH_SQUOTE         = Buffer.from("'");
+const CH_RPAREN_SPACE   = Buffer.from(') ');
+const CH_RPAREN_LBRACE  = Buffer.from(') {\n');
+const CH_OPEN_PAREN     = Buffer.from('(');
+const CH_CLOSE_PAREN    = Buffer.from(')');
+
+// Operator buffers — match ECMA-262 tokens
+const OP_STRICT_EQ  = Buffer.from(' === ');
+const OP_STRICT_NEQ = Buffer.from(' !== ');
+const OP_LT         = Buffer.from(' < ');
+const OP_GT         = Buffer.from(' > ');
+const OP_LTE        = Buffer.from(' <= ');
+const OP_GTE        = Buffer.from(' >= ');
+const OP_PLUS       = Buffer.from(' + ');
+const OP_MINUS      = Buffer.from(' - ');
+const OP_MUL        = Buffer.from(' * ');
+const OP_DIV        = Buffer.from(' / ');
+const OP_MOD        = Buffer.from(' % ');
+const OP_BIT_OR     = Buffer.from(' | ');
+const OP_BIT_XOR    = Buffer.from(' ^ ');
+const OP_BIT_AND    = Buffer.from(' & ');
+const OP_LSHIFT     = Buffer.from(' << ');
+const OP_RSHIFT     = Buffer.from(' >> ');
+const OP_URSHIFT    = Buffer.from(' >>> ');
+const OP_LOGICAL_OR = Buffer.from(' || ');
+const OP_LOGICAL_AND = Buffer.from(' && ');
+const OP_ASSIGN     = Buffer.from(' = ');
+const OP_PLUS_ASSIGN  = Buffer.from(' += ');
+const OP_MINUS_ASSIGN = Buffer.from(' -= ');
+const OP_MUL_ASSIGN   = Buffer.from(' *= ');
+const OP_DIV_ASSIGN   = Buffer.from(' /= ');
+const OP_MOD_ASSIGN   = Buffer.from(' %= ');
+const OP_OR_ASSIGN    = Buffer.from(' |= ');
+const OP_AND_ASSIGN   = Buffer.from(' &= ');
+const OP_XOR_ASSIGN   = Buffer.from(' ^= ');
+const OP_NOT           = Buffer.from('!');
+const OP_NEG           = Buffer.from('-');
+const OP_POS           = Buffer.from('+');
+const OP_INCREMENT     = Buffer.from('++');
+const OP_DECREMENT     = Buffer.from('--');
+
+// Indentation buffer — pre-allocate 64 levels of 4-space indent
+const MAX_INDENT = 64;
+const INDENT_SIZE = 4;
+const indent_pool = Buffer.alloc(MAX_INDENT * INDENT_SIZE, 32); // filled with spaces
+
+// Scratch buffer for numeric conversion (avoid toString in hot path)
+const num_scratch = Buffer.alloc(16);
+
+// ============================================================
+// Node Type Constants (must match parser.ohn exactly)
+// ============================================================
+const NODE_PROGRAM              = 0x00;
+const NODE_VARIABLE_DECLARATION = 0x01;
+const NODE_VARIABLE_DECLARATOR  = 0x02;
+const NODE_IDENTIFIER           = 0x03;
+const NODE_LITERAL              = 0x04;
+const NODE_CALL_EXPRESSION      = 0x05;
+const NODE_EXPRESSION_STATEMENT = 0x06;
+const NODE_MEMBER_EXPRESSION    = 0x07;
+const NODE_FUNCTION_DECLARATION = 0x08;
+const NODE_IF_STATEMENT         = 0x09;
+const NODE_WHILE_STATEMENT      = 0x0A;
+const NODE_RETURN_STATEMENT     = 0x0B;
+const NODE_BINARY_EXPRESSION    = 0x0C;
+const NODE_BLOCK_STATEMENT      = 0x0D;
+const NODE_ARRAY_EXPRESSION     = 0x0E;
+const NODE_UNARY_EXPRESSION     = 0x0F;
+const NODE_NEW_EXPRESSION       = 0x10;
+const NODE_THROW_STATEMENT      = 0x11;
+const NODE_BREAK_STATEMENT      = 0x12;
+const NODE_CONTINUE_STATEMENT   = 0x13;
+const NODE_FOR_STATEMENT        = 0x14;
+const NODE_ASSIGNMENT_EXPRESSION = 0x15;
+const NODE_UPDATE_EXPRESSION    = 0x16;
+const NODE_OBJECT_EXPRESSION    = 0x17;
+const NODE_PROPERTY             = 0x18;
+const NODE_CLASS_DECLARATION    = 0x19;
+const NODE_METHOD_DEFINITION    = 0x1A;
+const NODE_THIS_EXPRESSION      = 0x1B;
+const NODE_CONDITIONAL_EXPRESSION = 0x1C;
+
+// Flags
+const FLAG_CONST     = 0x0100;
+const FLAG_LET       = 0x0200;
+const FLAG_VAR       = 0x0400;
+const FLAG_STRING    = 0x0100;
+const FLAG_NUMBER    = 0x0200;
+const FLAG_BOOLEAN   = 0x0400;
+const FLAG_NULL      = 0x0800;
+const FLAG_UNDEFINED = 0x1000;
+const FLAG_COMPUTED  = 0x0100;
+const FLAG_PREFIX    = 0x0100;
+
+// Token constants for operator lookup (must match lexer.ohn)
+const TOKEN_ASSIGN       = 40;
+const TOKEN_STRICT_EQ    = 60;
+const TOKEN_STRICT_NEQ   = 61;
+const TOKEN_LT           = 62;
+const TOKEN_GT           = 63;
+const TOKEN_LTE          = 64;
+const TOKEN_GTE          = 65;
+const TOKEN_PLUS         = 70;
+const TOKEN_MINUS        = 71;
+const TOKEN_MUL          = 72;
+const TOKEN_DIV          = 73;
+const TOKEN_MOD          = 74;
+const TOKEN_BIT_OR       = 80;
+const TOKEN_BIT_XOR      = 81;
+const TOKEN_BIT_AND      = 82;
+const TOKEN_LSHIFT       = 83;
+const TOKEN_RSHIFT       = 84;
+const TOKEN_URSHIFT      = 85;
+const TOKEN_LOGICAL_NOT  = 90;
+const TOKEN_LOGICAL_OR   = 91;
+const TOKEN_LOGICAL_AND  = 92;
+const TOKEN_PLUS_ASSIGN  = 100;
+const TOKEN_MINUS_ASSIGN = 101;
+const TOKEN_MUL_ASSIGN   = 102;
+const TOKEN_DIV_ASSIGN   = 103;
+const TOKEN_MOD_ASSIGN   = 104;
+const TOKEN_OR_ASSIGN    = 105;
+const TOKEN_AND_ASSIGN   = 106;
+const TOKEN_XOR_ASSIGN   = 107;
+const TOKEN_INCREMENT    = 110;
+const TOKEN_DECREMENT    = 111;
+const TOKEN_TYPEOF       = 28;
+
+// ============================================================
+// Operator Precedence Table (for parenthesis insertion)
+// ============================================================
+function get_precedence(op_token) {
+    op_token = op_token | 0;
+    if (op_token === TOKEN_LOGICAL_OR) return 5;
+    if (op_token === TOKEN_LOGICAL_AND) return 6;
+    if (op_token === TOKEN_BIT_OR) return 7;
+    if (op_token === TOKEN_BIT_XOR) return 8;
+    if (op_token === TOKEN_BIT_AND) return 9;
+    if (op_token === TOKEN_STRICT_EQ || op_token === TOKEN_STRICT_NEQ) return 10;
+    if (op_token === TOKEN_LT || op_token === TOKEN_GT ||
+        op_token === TOKEN_LTE || op_token === TOKEN_GTE) return 11;
+    if (op_token === TOKEN_LSHIFT || op_token === TOKEN_RSHIFT ||
+        op_token === TOKEN_URSHIFT) return 12;
+    if (op_token === TOKEN_PLUS || op_token === TOKEN_MINUS) return 13;
+    if (op_token === TOKEN_MUL || op_token === TOKEN_DIV ||
+        op_token === TOKEN_MOD) return 14;
+    return 0;
+}
+
+// ============================================================
+// Get Operator Buffer by Token Type
+// ============================================================
+function get_binary_op_buf(op_token) {
+    op_token = op_token | 0;
+    if (op_token === TOKEN_STRICT_EQ) return OP_STRICT_EQ;
+    if (op_token === TOKEN_STRICT_NEQ) return OP_STRICT_NEQ;
+    if (op_token === TOKEN_LT) return OP_LT;
+    if (op_token === TOKEN_GT) return OP_GT;
+    if (op_token === TOKEN_LTE) return OP_LTE;
+    if (op_token === TOKEN_GTE) return OP_GTE;
+    if (op_token === TOKEN_PLUS) return OP_PLUS;
+    if (op_token === TOKEN_MINUS) return OP_MINUS;
+    if (op_token === TOKEN_MUL) return OP_MUL;
+    if (op_token === TOKEN_DIV) return OP_DIV;
+    if (op_token === TOKEN_MOD) return OP_MOD;
+    if (op_token === TOKEN_BIT_OR) return OP_BIT_OR;
+    if (op_token === TOKEN_BIT_XOR) return OP_BIT_XOR;
+    if (op_token === TOKEN_BIT_AND) return OP_BIT_AND;
+    if (op_token === TOKEN_LSHIFT) return OP_LSHIFT;
+    if (op_token === TOKEN_RSHIFT) return OP_RSHIFT;
+    if (op_token === TOKEN_URSHIFT) return OP_URSHIFT;
+    if (op_token === TOKEN_LOGICAL_OR) return OP_LOGICAL_OR;
+    if (op_token === TOKEN_LOGICAL_AND) return OP_LOGICAL_AND;
+    return OP_PLUS; // fallback
+}
+
+function get_assign_op_buf(op_token) {
+    op_token = op_token | 0;
+    if (op_token === TOKEN_ASSIGN) return OP_ASSIGN;
+    if (op_token === TOKEN_PLUS_ASSIGN) return OP_PLUS_ASSIGN;
+    if (op_token === TOKEN_MINUS_ASSIGN) return OP_MINUS_ASSIGN;
+    if (op_token === TOKEN_MUL_ASSIGN) return OP_MUL_ASSIGN;
+    if (op_token === TOKEN_DIV_ASSIGN) return OP_DIV_ASSIGN;
+    if (op_token === TOKEN_MOD_ASSIGN) return OP_MOD_ASSIGN;
+    if (op_token === TOKEN_OR_ASSIGN) return OP_OR_ASSIGN;
+    if (op_token === TOKEN_AND_ASSIGN) return OP_AND_ASSIGN;
+    if (op_token === TOKEN_XOR_ASSIGN) return OP_XOR_ASSIGN;
+    return OP_ASSIGN; // fallback
+}
+
+function get_unary_op_buf(op_token) {
+    op_token = op_token | 0;
+    if (op_token === TOKEN_LOGICAL_NOT) return OP_NOT;
+    if (op_token === TOKEN_MINUS) return OP_NEG;
+    if (op_token === TOKEN_PLUS) return OP_POS;
+    if (op_token === TOKEN_TYPEOF) return KW_TYPEOF;
+    return OP_NOT; // fallback
+}
+
+// ============================================================
+// Zero-Allocation Integer-to-ASCII Converter
+// Writes decimal digits into num_scratch, returns byte length
+// ============================================================
+function int_to_ascii(value) {
+    value = value | 0;
+
+    if (value === 0) {
+        num_scratch[0] = 48; // '0'
+        return 1;
+    }
+
+    let negative = false;
+    if (value < 0) {
+        negative = true;
+        value = (-value) | 0;
+    }
+
+    // Write digits in reverse
+    let pos = 15;
+    while (value > 0) {
+        num_scratch[pos] = ((value % 10) + 48) | 0;
+        value = (value / 10) | 0;
+        pos = (pos - 1) | 0;
+    }
+
+    if (negative) {
+        num_scratch[pos] = 45; // '-'
+        pos = (pos - 1) | 0;
+    }
+
+    const start = (pos + 1) | 0;
+    const len = (16 - start) | 0;
+
+    // Shift to start of buffer
+    for (let i = 0; i < len; i = (i + 1) | 0) {
+        num_scratch[i] = num_scratch[(start + i) | 0];
+    }
+
+    return len | 0;
+}
+
+// ============================================================
+// Hex format for 0x literals
+// ============================================================
+const HEX_PREFIX = Buffer.from('0x');
+const HEX_CHARS = Buffer.from('0123456789abcdef');
+const hex_scratch = Buffer.alloc(16);
+
+function int_to_hex(value) {
+    value = value | 0;
+
+    if (value === 0) {
+        hex_scratch[0] = 48; // '0'
+        return 1;
+    }
+
+    let uval = value >>> 0; // treat as unsigned
+    let pos = 15;
+    while (uval > 0) {
+        hex_scratch[pos] = HEX_CHARS[uval & 0xF];
+        uval = uval >>> 4;
+        pos = (pos - 1) | 0;
+    }
+
+    const start = (pos + 1) | 0;
+    const len = (16 - start) | 0;
+
+    for (let i = 0; i < len; i = (i + 1) | 0) {
+        hex_scratch[i] = hex_scratch[(start + i) | 0];
+    }
+
+    return len | 0;
+}
+
+// ============================================================
+// Generator Public API
+// ============================================================
+
+function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
+    const emitter = new Emitter(outputPath);
+    let indent_level = 0;
+
+    // Emit "use strict" at the top
+    emitter.emit(KW_USE_STRICT, 0, KW_USE_STRICT.length);
+
+    // Helper to emit indentation
+    function emit_indent() {
+        if (indent_level > 0) {
+            const bytes = (indent_level * INDENT_SIZE) | 0;
+            const capped = bytes < indent_pool.length ? bytes : indent_pool.length;
+            emitter.emit(indent_pool, 0, capped);
+        }
+    }
+
+    // Helper to read a null-terminated string length from intern pool
+    function intern_length(offset) {
+        offset = offset | 0;
+        let len = 0;
+        while (intern_pool[(offset + len) | 0] !== 0) {
+            len = (len + 1) | 0;
+        }
+        return len | 0;
+    }
+
+    // Escape and emit a string literal from the intern pool
+    // Must re-escape chars that were unescaped during parsing
+    function emit_escaped_string(offset) {
+        offset = offset | 0;
+        let i = offset | 0;
+        while (intern_pool[i] !== 0) {
+            const byte = intern_pool[i] | 0;
+            if (byte === 10) {         // newline -> \n
+                emitter.emit(Buffer.from('\\n'), 0, 2);
+            } else if (byte === 9) {   // tab -> \t
+                emitter.emit(Buffer.from('\\t'), 0, 2);
+            } else if (byte === 13) {  // carriage return -> \r
+                emitter.emit(Buffer.from('\\r'), 0, 2);
+            } else if (byte === 92) {  // backslash -> \\
+                emitter.emit(Buffer.from('\\\\'), 0, 2);
+            } else if (byte === 34) {  // double quote -> \"
+                emitter.emit(Buffer.from('\\"'), 0, 2);
+            } else if (byte === 39) {  // single quote -> \'
+                emitter.emit(Buffer.from("\\'"), 0, 2);
+            } else if (byte === 0) {   // null -> \0
+                emitter.emit(Buffer.from('\\0'), 0, 2);
+            } else {
+                emitter.emit(intern_pool, i, 1);
+            }
+            i = (i + 1) | 0;
+        }
+    }
+
+    // ============================================================
+    // walk(node_index, parent_prec) — the main recursive AST walker
+    // ============================================================
+    function walk(idx, parent_prec) {
+        idx = idx | 0;
+        parent_prec = parent_prec | 0;
+
+        if (idx < 0) return; // sentinel for missing nodes
+
+        const tf = ast_nodes[idx] | 0;
+        const base = tf & 0xFF;
+        const d1 = ast_nodes[(idx + 2) | 0] | 0;
+        const d2 = ast_nodes[(idx + 3) | 0] | 0;
+
+        // ── Program (0x00) ──
+        if (base === NODE_PROGRAM) {
+            const child_count = d1 | 0;
+            const extra_start = d2 | 0;
+            for (let i = 0; i < child_count; i = (i + 1) | 0) {
+                walk(ast_extra[(extra_start + i) | 0] | 0, 0);
+            }
+            return;
+        }
+
+        // ── VariableDeclaration (0x01) ──
+        if (base === NODE_VARIABLE_DECLARATION) {
+            emit_indent();
+            if (tf & FLAG_CONST) emitter.emit(KW_CONST, 0, KW_CONST.length);
+            else if (tf & FLAG_LET) emitter.emit(KW_LET, 0, KW_LET.length);
+            else emitter.emit(KW_VAR, 0, KW_VAR.length);
+
+            const decl_count = d1 | 0;
+            const extra_start = d2 | 0;
+            for (let i = 0; i < decl_count; i = (i + 1) | 0) {
+                if (i > 0) emitter.emit(CH_COMMA, 0, CH_COMMA.length);
+                walk(ast_extra[(extra_start + i) | 0] | 0, 0);
+            }
+            emitter.emit(CH_SEMICOLON, 0, CH_SEMICOLON.length);
+            return;
+        }
+
+        // ── VariableDeclarator (0x02) ──
+        if (base === NODE_VARIABLE_DECLARATOR) {
+            walk(d1, 0); // identifier
+            if (d2 >= 0) {
+                emitter.emit(CH_ASSIGN, 0, CH_ASSIGN.length);
+                walk(d2, 0); // initializer
+            }
+            return;
+        }
+
+        // ── Identifier (0x03) ──
+        if (base === NODE_IDENTIFIER) {
+            const len = intern_length(d1) | 0;
+            emitter.emit(intern_pool, d1, len);
+            return;
+        }
+
+        // ── Literal (0x04) ──
+        if (base === NODE_LITERAL) {
+            if (tf & FLAG_STRING) {
+                emitter.emit(CH_SQUOTE, 0, 1);
+                emit_escaped_string(d1);
+                emitter.emit(CH_SQUOTE, 0, 1);
+            } else if (tf & FLAG_NUMBER) {
+                // Check if original was hex
+                if (d1 > 255 || d1 < 0) {
+                    emitter.emit(HEX_PREFIX, 0, HEX_PREFIX.length);
+                    const hlen = int_to_hex(d1) | 0;
+                    emitter.emit(hex_scratch, 0, hlen);
+                } else {
+                    const nlen = int_to_ascii(d1) | 0;
+                    emitter.emit(num_scratch, 0, nlen);
+                }
+            } else if (tf & FLAG_BOOLEAN) {
+                if (d1) emitter.emit(KW_TRUE, 0, KW_TRUE.length);
+                else emitter.emit(KW_FALSE, 0, KW_FALSE.length);
+            } else if (tf & FLAG_NULL) {
+                emitter.emit(KW_NULL, 0, KW_NULL.length);
+            } else if (tf & FLAG_UNDEFINED) {
+                emitter.emit(KW_UNDEFINED, 0, KW_UNDEFINED.length);
+            }
+            return;
+        }
+
+        // ── CallExpression (0x05) ──
+        if (base === NODE_CALL_EXPRESSION) {
+            const arg_count = (tf >> 16) & 0xFFFF;
+            walk(d1, 0); // callee
+            emitter.emit(CH_LPAREN, 0, CH_LPAREN.length);
+            for (let i = 0; i < arg_count; i = (i + 1) | 0) {
+                if (i > 0) emitter.emit(CH_COMMA, 0, CH_COMMA.length);
+                walk(ast_extra[(d2 + i) | 0] | 0, 0);
+            }
+            emitter.emit(CH_RPAREN, 0, CH_RPAREN.length);
+            return;
+        }
+
+        // ── ExpressionStatement (0x06) ──
+        if (base === NODE_EXPRESSION_STATEMENT) {
+            emit_indent();
+            walk(d1, 0);
+            emitter.emit(CH_SEMICOLON, 0, CH_SEMICOLON.length);
+            return;
+        }
+
+        // ── MemberExpression (0x07) ──
+        if (base === NODE_MEMBER_EXPRESSION) {
+            walk(d1, 0); // object
+            if (tf & FLAG_COMPUTED) {
+                emitter.emit(CH_LBRACKET, 0, CH_LBRACKET.length);
+                walk(d2, 0); // computed index
+                emitter.emit(CH_RBRACKET, 0, CH_RBRACKET.length);
+            } else {
+                emitter.emit(CH_DOT, 0, CH_DOT.length);
+                walk(d2, 0); // property
+            }
+            return;
+        }
+
+        // ── FunctionDeclaration (0x08) ──
+        if (base === NODE_FUNCTION_DECLARATION) {
+            emit_indent();
+            emitter.emit(KW_FUNCTION, 0, KW_FUNCTION.length);
+            walk(d1, 0); // name
+            emitter.emit(CH_LPAREN, 0, CH_LPAREN.length);
+
+            const param_count = ast_extra[d2] | 0;
+            for (let i = 0; i < param_count; i = (i + 1) | 0) {
+                if (i > 0) emitter.emit(CH_COMMA, 0, CH_COMMA.length);
+                walk(ast_extra[(d2 + 1 + i) | 0] | 0, 0);
+            }
+
+            emitter.emit(CH_RPAREN_LBRACE, 0, CH_RPAREN_LBRACE.length);
+            indent_level = (indent_level + 1) | 0;
+
+            // Body is the last entry in extra: d2 + 1 + param_count
+            const body_idx = ast_extra[(d2 + 1 + param_count) | 0] | 0;
+            walk_block_body(body_idx);
+
+            indent_level = (indent_level - 1) | 0;
+            emit_indent();
+            emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+            emitter.emit(CH_NEWLINE, 0, CH_NEWLINE.length);
+            return;
+        }
+
+        // ── IfStatement (0x09) ──
+        if (base === NODE_IF_STATEMENT) {
+            emit_indent();
+            emitter.emit(KW_IF, 0, KW_IF.length);
+            walk(d1, 0); // condition
+            emitter.emit(CH_RPAREN_LBRACE, 0, CH_RPAREN_LBRACE.length);
+
+            const consequent = ast_extra[d2] | 0;
+            const alternate = ast_extra[(d2 + 1) | 0] | 0;
+
+            indent_level = (indent_level + 1) | 0;
+            // Check if consequent is a block — if so, walk its body
+            const cons_base = ast_nodes[consequent] & 0xFF;
+            if (cons_base === NODE_BLOCK_STATEMENT) {
+                walk_block_body(consequent);
+            } else {
+                walk(consequent, 0);
+            }
+            indent_level = (indent_level - 1) | 0;
+
+            if (alternate >= 0) {
+                const alt_base = ast_nodes[alternate] & 0xFF;
+                if (alt_base === NODE_IF_STATEMENT) {
+                    // else if — emit on same line
+                    emit_indent();
+                    emitter.emit(Buffer.from('} else '), 0, 7);
+                    // Recursively handle the else-if, but strip the indent
+                    walk_if_continuation(alternate);
+                } else {
+                    emit_indent();
+                    emitter.emit(Buffer.from('} else {\n'), 0, 9);
+                    indent_level = (indent_level + 1) | 0;
+                    if (alt_base === NODE_BLOCK_STATEMENT) {
+                        walk_block_body(alternate);
+                    } else {
+                        walk(alternate, 0);
+                    }
+                    indent_level = (indent_level - 1) | 0;
+                    emit_indent();
+                    emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+                }
+            } else {
+                emit_indent();
+                emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+            }
+            return;
+        }
+
+        // ── WhileStatement (0x0A) ──
+        if (base === NODE_WHILE_STATEMENT) {
+            emit_indent();
+            emitter.emit(KW_WHILE, 0, KW_WHILE.length);
+            walk(d1, 0); // condition
+            emitter.emit(CH_RPAREN_LBRACE, 0, CH_RPAREN_LBRACE.length);
+            indent_level = (indent_level + 1) | 0;
+            const body_base = ast_nodes[d2] & 0xFF;
+            if (body_base === NODE_BLOCK_STATEMENT) {
+                walk_block_body(d2);
+            } else {
+                walk(d2, 0);
+            }
+            indent_level = (indent_level - 1) | 0;
+            emit_indent();
+            emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+            return;
+        }
+
+        // ── ReturnStatement (0x0B) ──
+        if (base === NODE_RETURN_STATEMENT) {
+            emit_indent();
+            if (d1 >= 0) {
+                emitter.emit(KW_RETURN_SPACE, 0, KW_RETURN_SPACE.length);
+                walk(d1, 0);
+            } else {
+                emitter.emit(KW_RETURN, 0, KW_RETURN.length);
+            }
+            emitter.emit(CH_SEMICOLON, 0, CH_SEMICOLON.length);
+            return;
+        }
+
+        // ── BinaryExpression (0x0C) ──
+        if (base === NODE_BINARY_EXPRESSION) {
+            const op_token = (tf >> 16) & 0xFFFF;
+            const my_prec = get_precedence(op_token) | 0;
+            const need_parens = my_prec < parent_prec;
+
+            if (need_parens) emitter.emit(CH_LPAREN, 0, CH_LPAREN.length);
+            walk(d1, my_prec); // left
+            const op_buf = get_binary_op_buf(op_token);
+            emitter.emit(op_buf, 0, op_buf.length);
+            walk(d2, my_prec); // right
+            if (need_parens) emitter.emit(CH_RPAREN, 0, CH_RPAREN.length);
+            return;
+        }
+
+        // ── BlockStatement (0x0D) ──
+        if (base === NODE_BLOCK_STATEMENT) {
+            emit_indent();
+            emitter.emit(Buffer.from('{\n'), 0, 2);
+            indent_level = (indent_level + 1) | 0;
+            walk_block_body(idx);
+            indent_level = (indent_level - 1) | 0;
+            emit_indent();
+            emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+            return;
+        }
+
+        // ── ArrayExpression (0x0E) ──
+        if (base === NODE_ARRAY_EXPRESSION) {
+            emitter.emit(CH_LBRACKET, 0, CH_LBRACKET.length);
+            const elem_count = d1 | 0;
+            for (let i = 0; i < elem_count; i = (i + 1) | 0) {
+                if (i > 0) emitter.emit(CH_COMMA, 0, CH_COMMA.length);
+                walk(ast_extra[(d2 + i) | 0] | 0, 0);
+            }
+            emitter.emit(CH_RBRACKET, 0, CH_RBRACKET.length);
+            return;
+        }
+
+        // ── UnaryExpression (0x0F) ──
+        if (base === NODE_UNARY_EXPRESSION) {
+            const op_token = (tf >> 16) & 0xFFFF;
+            const op_buf = get_unary_op_buf(op_token);
+            emitter.emit(op_buf, 0, op_buf.length);
+            walk(d1, 16); // operand at highest precedence
+            return;
+        }
+
+        // ── NewExpression (0x10) ──
+        if (base === NODE_NEW_EXPRESSION) {
+            emitter.emit(KW_NEW, 0, KW_NEW.length);
+            walk(d1, 0); // callee
+            emitter.emit(CH_LPAREN, 0, CH_LPAREN.length);
+            const arg_count = ast_extra[d2] | 0;
+            for (let i = 0; i < arg_count; i = (i + 1) | 0) {
+                if (i > 0) emitter.emit(CH_COMMA, 0, CH_COMMA.length);
+                walk(ast_extra[(d2 + 1 + i) | 0] | 0, 0);
+            }
+            emitter.emit(CH_RPAREN, 0, CH_RPAREN.length);
+            return;
+        }
+
+        // ── ThrowStatement (0x11) ──
+        if (base === NODE_THROW_STATEMENT) {
+            emit_indent();
+            emitter.emit(KW_THROW, 0, KW_THROW.length);
+            walk(d1, 0);
+            emitter.emit(CH_SEMICOLON, 0, CH_SEMICOLON.length);
+            return;
+        }
+
+        // ── BreakStatement (0x12) ──
+        if (base === NODE_BREAK_STATEMENT) {
+            emit_indent();
+            emitter.emit(KW_BREAK, 0, KW_BREAK.length);
+            emitter.emit(CH_SEMICOLON, 0, CH_SEMICOLON.length);
+            return;
+        }
+
+        // ── ContinueStatement (0x13) ──
+        if (base === NODE_CONTINUE_STATEMENT) {
+            emit_indent();
+            emitter.emit(KW_CONTINUE, 0, KW_CONTINUE.length);
+            emitter.emit(CH_SEMICOLON, 0, CH_SEMICOLON.length);
+            return;
+        }
+
+        // ── ForStatement (0x14) ──
+        if (base === NODE_FOR_STATEMENT) {
+            emit_indent();
+            emitter.emit(KW_FOR, 0, KW_FOR.length);
+            // d1 = extra_start (init, test, update), d2 = body
+            const init_node = ast_extra[d1] | 0;
+            const test_node = ast_extra[(d1 + 1) | 0] | 0;
+            const update_node = ast_extra[(d1 + 2) | 0] | 0;
+
+            // init
+            if (init_node >= 0) {
+                const init_base = ast_nodes[init_node] & 0xFF;
+                if (init_base === NODE_VARIABLE_DECLARATION) {
+                    // emit var decl without semicolon or indent
+                    walk_var_decl_inline(init_node);
+                } else {
+                    walk(init_node, 0);
+                }
+            }
+            emitter.emit(CH_SEMICOLON_ONLY, 0, 1);
+            emitter.emit(CH_SPACE, 0, 1);
+
+            // test
+            if (test_node >= 0) walk(test_node, 0);
+            emitter.emit(CH_SEMICOLON_ONLY, 0, 1);
+            emitter.emit(CH_SPACE, 0, 1);
+
+            // update
+            if (update_node >= 0) walk(update_node, 0);
+
+            emitter.emit(CH_RPAREN_LBRACE, 0, CH_RPAREN_LBRACE.length);
+            indent_level = (indent_level + 1) | 0;
+            const body_base = ast_nodes[d2] & 0xFF;
+            if (body_base === NODE_BLOCK_STATEMENT) {
+                walk_block_body(d2);
+            } else {
+                walk(d2, 0);
+            }
+            indent_level = (indent_level - 1) | 0;
+            emit_indent();
+            emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+            return;
+        }
+
+        // ── AssignmentExpression (0x15) ──
+        if (base === NODE_ASSIGNMENT_EXPRESSION) {
+            const op_token = (tf >> 16) & 0xFFFF;
+            walk(d1, 0); // LHS
+            const op_buf = get_assign_op_buf(op_token);
+            emitter.emit(op_buf, 0, op_buf.length);
+            walk(d2, 0); // RHS
+            return;
+        }
+
+        // ── UpdateExpression (0x16) ──
+        if (base === NODE_UPDATE_EXPRESSION) {
+            const op_token = (tf >> 16) & 0xFFFF;
+            const is_prefix = (tf & FLAG_PREFIX) !== 0;
+            const op_buf = op_token === TOKEN_INCREMENT ? OP_INCREMENT : OP_DECREMENT;
+
+            if (is_prefix) {
+                emitter.emit(op_buf, 0, op_buf.length);
+                walk(d1, 0);
+            } else {
+                walk(d1, 0);
+                emitter.emit(op_buf, 0, op_buf.length);
+            }
+            return;
+        }
+
+        // ── ObjectExpression (0x17) ──
+        if (base === NODE_OBJECT_EXPRESSION) {
+            emitter.emit(Buffer.from('{\n'), 0, 2);
+            indent_level = (indent_level + 1) | 0;
+            const prop_count = d1 | 0;
+            for (let i = 0; i < prop_count; i = (i + 1) | 0) {
+                emit_indent();
+                walk(ast_extra[(d2 + i) | 0] | 0, 0);
+                if (i < prop_count - 1) {
+                    emitter.emit(CH_COMMA_NL, 0, CH_COMMA_NL.length);
+                } else {
+                    // trailing comma
+                    emitter.emit(CH_COMMA_NL, 0, CH_COMMA_NL.length);
+                }
+            }
+            indent_level = (indent_level - 1) | 0;
+            emit_indent();
+            emitter.emit(Buffer.from('}'), 0, 1);
+            return;
+        }
+
+        // ── Property (0x18) ──
+        if (base === NODE_PROPERTY) {
+            // d1 = key, d2 = value
+            // Check for shorthand: if key and value point to same node
+            if (d1 === d2) {
+                walk(d1, 0); // shorthand
+            } else {
+                walk(d1, 0); // key
+                emitter.emit(CH_COLON, 0, CH_COLON.length);
+                walk(d2, 0); // value
+            }
+            return;
+        }
+
+        // ── ClassDeclaration (0x19) ──
+        if (base === NODE_CLASS_DECLARATION) {
+            emit_indent();
+            emitter.emit(KW_CLASS, 0, KW_CLASS.length);
+            walk(d1, 0); // name
+            emitter.emit(CH_LBRACE, 0, CH_LBRACE.length);
+            indent_level = (indent_level + 1) | 0;
+
+            const method_count = ast_extra[d2] | 0;
+            for (let i = 0; i < method_count; i = (i + 1) | 0) {
+                walk(ast_extra[(d2 + 1 + i) | 0] | 0, 0);
+            }
+
+            indent_level = (indent_level - 1) | 0;
+            emit_indent();
+            emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+            emitter.emit(CH_NEWLINE, 0, CH_NEWLINE.length);
+            return;
+        }
+
+        // ── MethodDefinition (0x1A) ──
+        if (base === NODE_METHOD_DEFINITION) {
+            emit_indent();
+            walk(d1, 0); // method name
+            emitter.emit(CH_LPAREN, 0, CH_LPAREN.length);
+
+            const param_count = ast_extra[d2] | 0;
+            for (let i = 0; i < param_count; i = (i + 1) | 0) {
+                if (i > 0) emitter.emit(CH_COMMA, 0, CH_COMMA.length);
+                walk(ast_extra[(d2 + 1 + i) | 0] | 0, 0);
+            }
+
+            emitter.emit(CH_RPAREN_LBRACE, 0, CH_RPAREN_LBRACE.length);
+            indent_level = (indent_level + 1) | 0;
+            const body_idx = ast_extra[(d2 + 1 + param_count) | 0] | 0;
+            walk_block_body(body_idx);
+            indent_level = (indent_level - 1) | 0;
+            emit_indent();
+            emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+            emitter.emit(CH_NEWLINE, 0, CH_NEWLINE.length);
+            return;
+        }
+
+        // ── ThisExpression (0x1B) ──
+        if (base === NODE_THIS_EXPRESSION) {
+            emitter.emit(KW_THIS, 0, KW_THIS.length);
+            return;
+        }
+
+        // ── ConditionalExpression (0x1C) — ternary ? : ──
+        if (base === NODE_CONDITIONAL_EXPRESSION) {
+            walk(d1, 0); // condition
+            emitter.emit(CH_QUESTION_SPACE, 0, CH_QUESTION_SPACE.length);
+            walk(ast_extra[d2] | 0, 0); // consequent
+            emitter.emit(CH_COLON_SPACE, 0, CH_COLON_SPACE.length);
+            walk(ast_extra[(d2 + 1) | 0] | 0, 0); // alternate
+            return;
+        }
+    }
+
+    // ============================================================
+    // walk_block_body(block_idx) — emit children of a block WITHOUT braces
+    // ============================================================
+    function walk_block_body(block_idx) {
+        block_idx = block_idx | 0;
+        const btf = ast_nodes[block_idx] | 0;
+        const bbase = btf & 0xFF;
+        if (bbase !== NODE_BLOCK_STATEMENT) {
+            walk(block_idx, 0);
+            return;
+        }
+        const child_count = ast_nodes[(block_idx + 2) | 0] | 0;
+        const extra_start = ast_nodes[(block_idx + 3) | 0] | 0;
+        for (let i = 0; i < child_count; i = (i + 1) | 0) {
+            walk(ast_extra[(extra_start + i) | 0] | 0, 0);
+        }
+    }
+
+    // ============================================================
+    // walk_if_continuation(idx) — emit an 'if' without leading indent
+    // Used for else-if chains to emit on same line as } else
+    // ============================================================
+    function walk_if_continuation(idx) {
+        idx = idx | 0;
+        const tf = ast_nodes[idx] | 0;
+        const d1 = ast_nodes[(idx + 2) | 0] | 0;
+        const d2 = ast_nodes[(idx + 3) | 0] | 0;
+
+        emitter.emit(KW_IF, 0, KW_IF.length);
+        walk(d1, 0); // condition
+        emitter.emit(CH_RPAREN_LBRACE, 0, CH_RPAREN_LBRACE.length);
+
+        const consequent = ast_extra[d2] | 0;
+        const alternate = ast_extra[(d2 + 1) | 0] | 0;
+
+        indent_level = (indent_level + 1) | 0;
+        const cons_base = ast_nodes[consequent] & 0xFF;
+        if (cons_base === NODE_BLOCK_STATEMENT) {
+            walk_block_body(consequent);
+        } else {
+            walk(consequent, 0);
+        }
+        indent_level = (indent_level - 1) | 0;
+
+        if (alternate >= 0) {
+            const alt_base = ast_nodes[alternate] & 0xFF;
+            if (alt_base === NODE_IF_STATEMENT) {
+                emit_indent();
+                emitter.emit(Buffer.from('} else '), 0, 7);
+                walk_if_continuation(alternate);
+            } else {
+                emit_indent();
+                emitter.emit(Buffer.from('} else {\n'), 0, 9);
+                indent_level = (indent_level + 1) | 0;
+                if (alt_base === NODE_BLOCK_STATEMENT) {
+                    walk_block_body(alternate);
+                } else {
+                    walk(alternate, 0);
+                }
+                indent_level = (indent_level - 1) | 0;
+                emit_indent();
+                emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+            }
+        } else {
+            emit_indent();
+            emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+        }
+    }
+
+    // ============================================================
+    // walk_var_decl_inline(idx) — emit a var decl without indent/semicolon
+    // Used in for-loop init
+    // ============================================================
+    function walk_var_decl_inline(idx) {
+        idx = idx | 0;
+        const tf = ast_nodes[idx] | 0;
+        const d1 = ast_nodes[(idx + 2) | 0] | 0;
+        const d2_val = ast_nodes[(idx + 3) | 0] | 0;
+
+        if (tf & FLAG_CONST) emitter.emit(KW_CONST, 0, KW_CONST.length);
+        else if (tf & FLAG_LET) emitter.emit(KW_LET, 0, KW_LET.length);
+        else emitter.emit(KW_VAR, 0, KW_VAR.length);
+
+        for (let i = 0; i < d1; i = (i + 1) | 0) {
+            if (i > 0) emitter.emit(CH_COMMA, 0, CH_COMMA.length);
+            walk(ast_extra[(d2_val + i) | 0] | 0, 0);
+        }
+    }
+
+    // Start walking from root
+    walk(root_index | 0, 0);
+
+    // Flush remaining bytes to disk
+    emitter.flush();
+}
+
+module.exports = { generate };

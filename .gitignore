@@ -1,3 +1,8 @@
 node_modules/
 test.js
 *.log
+.bootstrap/
+vectors.bin
+vectors.json
+mock-payload.json
+benchmarks/server-memory-log.csv

@@ -906,6 +906,7 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             return t | 0;
         }
 
+
         // ── BinaryExpression (0x0C) ──
         if (base === NODE_BINARY_EXPRESSION) {
             const op_token = (tf >>> 16) | 0;

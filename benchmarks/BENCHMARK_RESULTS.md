@@ -825,6 +825,15 @@ Ohnrscript now simultaneously demonstrates:
 
 Properties 5–7 were achieved on Day 4 of the project.
 
+### Prior Art: Compiling JavaScript to Native
+
+Attempting to compile JavaScript to bare-metal intermediate representation (IR) is incredibly rare and historically difficult. The landscape of prior art typically falls into two categories:
+
+1. **Virtual Machines & Bundlers (Bun, NectarJS, QuickJS):** These tools often produce a "native binary" (e.g., an `.exe`), but they are not translating JavaScript to machine code. They bundle the JavaScript source code alongside an entire JS Engine (like V8 or JavaScriptCore) into a single executable archive.
+2. **Constrained Subsets & Custom Backends (AssemblyScript, Static Hermes, Porffor):** AssemblyScript compiles a strict subset of TypeScript, but targets WebAssembly (which still requires a VM sandboxed runtime). Static Hermes attempts Ahead-Of-Time (AOT) compilation for React Native, but still relies on a bundled garbage collector and JS runtime for dynamic features. Experimental projects like Porffor attempt pure native compilation, but remain in early research phases.
+
+**The Ohnrscript Difference (Pure AOT to LLVM)**
+Ohnrscript does not bundle V8, nor does it include a Garbage Collector. By enforcing strict, C-style memory constraints (e.g., locking variables to `i32` types and utilizing typed arrays) on standard JavaScript syntax, Ohnrscript mathematically maps AST nodes directly into raw LLVM instructions. When a compiled Ohnrscript binary executes, the CPU is processing pure ARM64/x86 assembly instructions with zero JavaScript engine overhead. This pure translation is the architectural foundation that enables the 7x–11x performance multipliers over the V8 JIT.
 ### Reproducibility
 
 ```bash

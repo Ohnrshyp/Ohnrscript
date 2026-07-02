@@ -604,10 +604,8 @@ merge.0:
   ret i32 0
 }
 
-define i32 @kernelMain(i64 %vga, i64 %msg1, i64 %len1, i64 %msg2, i64 %len2, i64 %msg3, i64 %len3, i64 %msg4, i64 %len4, i64 %msg5, i64 %len5) {
+define i32 @kernelMain() {
 entry:
-  %i0 = alloca i32
-  %c0 = alloca i32
   %cursorRow = alloca i32
   %cursorCol = alloca i32
   %lastCode = alloca i32
@@ -617,261 +615,230 @@ entry:
   %off = alloca i32
   %t0 = call i64 @vgaClearScreen()
   %t1 = trunc i64 %t0 to i32
-  %t2 = add i32 0, 0
-  store i32 %t2, ptr %i0
+  %t2 = add i32 0, 2
+  store i32 %t2, ptr %cursorRow
+  %t3 = add i32 0, 0
+  store i32 %t3, ptr %cursorCol
+  %t4 = add i32 0, 0
+  store i32 %t4, ptr %lastCode
   br label %loop.0
 loop.0:
-  %t3 = load i32, ptr %i0
-  %t4 = trunc i64 %len1 to i32
-  %t5 = icmp slt i32 %t3, %t4
-  %t6 = zext i1 %t5 to i32
-  %t7 = icmp ne i32 %t6, 0
-  br i1 %t7, label %body.0, label %exit.0
+  %t5 = add i32 0, 1
+  %t6 = icmp ne i32 %t5, 0
+  br i1 %t6, label %body.0, label %exit.0
 body.0:
-  %t8 = inttoptr i64 %msg1 to ptr
-  %t9 = load i32, ptr %i0
-  %t10 = getelementptr i32, ptr %t8, i32 %t9
-  %t11 = load i32, ptr %t10
-  %t12 = add i32 0, 0
-  %t13 = or i32 %t11, %t12
-  store i32 %t13, ptr %c0
-  %t14 = load i32, ptr %i0
-  %t15 = load i32, ptr %c0
-  %t16 = add i32 0, 15
-  %t17 = call i64 @vgaWriteChar(i32 %t14, i32 %t15, i32 %t16)
-  %t18 = trunc i64 %t17 to i32
-  %t19 = load i32, ptr %i0
-  %t20 = add i32 0, 1
-  %t21 = add i32 %t19, %t20
-  %t22 = add i32 0, 0
-  %t23 = or i32 %t21, %t22
-  store i32 %t23, ptr %i0
-  br label %loop.0
-exit.0:
-  %t24 = add i32 0, 2
-  store i32 %t24, ptr %cursorRow
-  %t25 = add i32 0, 0
-  store i32 %t25, ptr %cursorCol
-  %t26 = add i32 0, 0
-  store i32 %t26, ptr %lastCode
-  br label %loop.1
-loop.1:
-  %t27 = add i32 0, 1
-  %t28 = icmp ne i32 %t27, 0
-  br i1 %t28, label %body.1, label %exit.1
-body.1:
-  %t29 = add i32 0, 100
-  %t30 = call i64 @inb(i32 %t29)
-  %t31 = trunc i64 %t30 to i32
-  store i32 %t31, ptr %status
-  %t32 = load i32, ptr %status
-  %t33 = add i32 0, 1
-  %t34 = and i32 %t32, %t33
+  %t7 = add i32 0, 100
+  %t8 = call i64 @inb(i32 %t7)
+  %t9 = trunc i64 %t8 to i32
+  store i32 %t9, ptr %status
+  %t10 = load i32, ptr %status
+  %t11 = add i32 0, 1
+  %t12 = and i32 %t10, %t11
+  %t13 = add i32 0, 0
+  %t14 = icmp ne i32 %t12, %t13
+  %t15 = zext i1 %t14 to i32
+  %t16 = icmp ne i32 %t15, 0
+  br i1 %t16, label %then.1, label %merge.1
+then.1:
+  %t17 = add i32 0, 96
+  %t18 = call i64 @inb(i32 %t17)
+  %t19 = trunc i64 %t18 to i32
+  store i32 %t19, ptr %scancode
+  %t20 = load i32, ptr %scancode
+  %t21 = add i32 0, 128
+  %t22 = icmp slt i32 %t20, %t21
+  %t23 = zext i1 %t22 to i32
+  %t24 = icmp ne i32 %t23, 0
+  br i1 %t24, label %then.2, label %else.2
+then.2:
+  %t25 = load i32, ptr %scancode
+  %t26 = load i32, ptr %lastCode
+  %t27 = icmp ne i32 %t25, %t26
+  %t28 = zext i1 %t27 to i32
+  %t29 = icmp ne i32 %t28, 0
+  br i1 %t29, label %then.3, label %merge.3
+then.3:
+  %t30 = load i32, ptr %scancode
+  store i32 %t30, ptr %lastCode
+  %t31 = load i32, ptr %scancode
+  %t32 = zext i32 %t31 to i64
+  %t33 = call i32 @scancodeToAscii(i64 %t32)
+  store i32 %t33, ptr %ascii
+  %t34 = load i32, ptr %ascii
   %t35 = add i32 0, 0
   %t36 = icmp ne i32 %t34, %t35
   %t37 = zext i1 %t36 to i32
   %t38 = icmp ne i32 %t37, 0
-  br i1 %t38, label %then.2, label %merge.2
-then.2:
-  %t39 = add i32 0, 96
-  %t40 = call i64 @inb(i32 %t39)
-  %t41 = trunc i64 %t40 to i32
-  store i32 %t41, ptr %scancode
-  %t42 = load i32, ptr %scancode
-  %t43 = add i32 0, 128
-  %t44 = icmp slt i32 %t42, %t43
-  %t45 = zext i1 %t44 to i32
-  %t46 = icmp ne i32 %t45, 0
-  br i1 %t46, label %then.3, label %else.3
-then.3:
-  %t47 = load i32, ptr %scancode
-  %t48 = load i32, ptr %lastCode
-  %t49 = icmp ne i32 %t47, %t48
-  %t50 = zext i1 %t49 to i32
-  %t51 = icmp ne i32 %t50, 0
-  br i1 %t51, label %then.4, label %merge.4
+  br i1 %t38, label %then.4, label %merge.4
 then.4:
-  %t52 = load i32, ptr %scancode
-  store i32 %t52, ptr %lastCode
-  %t53 = load i32, ptr %scancode
-  %t54 = zext i32 %t53 to i64
-  %t55 = call i32 @scancodeToAscii(i64 %t54)
-  store i32 %t55, ptr %ascii
-  %t56 = load i32, ptr %ascii
-  %t57 = add i32 0, 0
-  %t58 = icmp ne i32 %t56, %t57
-  %t59 = zext i1 %t58 to i32
-  %t60 = icmp ne i32 %t59, 0
-  br i1 %t60, label %then.5, label %merge.5
+  %t39 = load i32, ptr %ascii
+  %t40 = add i32 0, 10
+  %t41 = icmp eq i32 %t39, %t40
+  %t42 = zext i1 %t41 to i32
+  %t43 = icmp ne i32 %t42, 0
+  br i1 %t43, label %then.5, label %else.5
 then.5:
-  %t61 = load i32, ptr %ascii
-  %t62 = add i32 0, 10
-  %t63 = icmp eq i32 %t61, %t62
-  %t64 = zext i1 %t63 to i32
-  %t65 = icmp ne i32 %t64, 0
-  br i1 %t65, label %then.6, label %else.6
+  %t44 = load i32, ptr %cursorRow
+  %t45 = add i32 0, 1
+  %t46 = add i32 %t44, %t45
+  %t47 = add i32 0, 0
+  %t48 = or i32 %t46, %t47
+  store i32 %t48, ptr %cursorRow
+  %t49 = add i32 0, 0
+  store i32 %t49, ptr %cursorCol
+  br label %merge.5
+else.5:
+  %t50 = load i32, ptr %ascii
+  %t51 = add i32 0, 8
+  %t52 = icmp eq i32 %t50, %t51
+  %t53 = zext i1 %t52 to i32
+  %t54 = icmp ne i32 %t53, 0
+  br i1 %t54, label %then.6, label %else.6
 then.6:
-  %t66 = load i32, ptr %cursorRow
-  %t67 = add i32 0, 1
-  %t68 = add i32 %t66, %t67
-  %t69 = add i32 0, 0
-  %t70 = or i32 %t68, %t69
-  store i32 %t70, ptr %cursorRow
-  %t71 = add i32 0, 0
-  store i32 %t71, ptr %cursorCol
-  br label %merge.6
-else.6:
-  %t72 = load i32, ptr %ascii
-  %t73 = add i32 0, 8
-  %t74 = icmp eq i32 %t72, %t73
-  %t75 = zext i1 %t74 to i32
-  %t76 = icmp ne i32 %t75, 0
-  br i1 %t76, label %then.7, label %else.7
+  %t55 = load i32, ptr %cursorCol
+  %t56 = add i32 0, 0
+  %t57 = icmp sgt i32 %t55, %t56
+  %t58 = zext i1 %t57 to i32
+  %t59 = icmp ne i32 %t58, 0
+  br i1 %t59, label %then.7, label %else.7
 then.7:
-  %t77 = load i32, ptr %cursorCol
-  %t78 = add i32 0, 0
+  %t60 = load i32, ptr %cursorCol
+  %t61 = add i32 0, 1
+  %t62 = sub i32 %t60, %t61
+  %t63 = add i32 0, 0
+  %t64 = or i32 %t62, %t63
+  store i32 %t64, ptr %cursorCol
+  %t65 = load i32, ptr %cursorRow
+  %t66 = add i32 0, 80
+  %t67 = mul i32 %t65, %t66
+  %t68 = load i32, ptr %cursorCol
+  %t69 = add i32 %t67, %t68
+  %t70 = add i32 0, 0
+  %t71 = or i32 %t69, %t70
+  store i32 %t71, ptr %off
+  %t72 = load i32, ptr %off
+  %t73 = add i32 0, 32
+  %t74 = add i32 0, 10
+  %t75 = call i64 @vgaWriteChar(i32 %t72, i32 %t73, i32 %t74)
+  %t76 = trunc i64 %t75 to i32
+  br label %merge.7
+else.7:
+  %t77 = load i32, ptr %cursorRow
+  %t78 = add i32 0, 2
   %t79 = icmp sgt i32 %t77, %t78
   %t80 = zext i1 %t79 to i32
   %t81 = icmp ne i32 %t80, 0
-  br i1 %t81, label %then.8, label %else.8
+  br i1 %t81, label %then.8, label %merge.8
 then.8:
-  %t82 = load i32, ptr %cursorCol
+  %t82 = load i32, ptr %cursorRow
   %t83 = add i32 0, 1
   %t84 = sub i32 %t82, %t83
   %t85 = add i32 0, 0
   %t86 = or i32 %t84, %t85
-  store i32 %t86, ptr %cursorCol
-  %t87 = load i32, ptr %cursorRow
-  %t88 = add i32 0, 80
-  %t89 = mul i32 %t87, %t88
-  %t90 = load i32, ptr %cursorCol
-  %t91 = add i32 %t89, %t90
-  %t92 = add i32 0, 0
-  %t93 = or i32 %t91, %t92
-  store i32 %t93, ptr %off
-  %t94 = load i32, ptr %off
-  %t95 = add i32 0, 32
-  %t96 = add i32 0, 10
-  %t97 = call i64 @vgaWriteChar(i32 %t94, i32 %t95, i32 %t96)
-  %t98 = trunc i64 %t97 to i32
-  br label %merge.8
-else.8:
-  %t99 = load i32, ptr %cursorRow
-  %t100 = add i32 0, 2
-  %t101 = icmp sgt i32 %t99, %t100
-  %t102 = zext i1 %t101 to i32
-  %t103 = icmp ne i32 %t102, 0
-  br i1 %t103, label %then.9, label %merge.9
-then.9:
-  %t104 = load i32, ptr %cursorRow
-  %t105 = add i32 0, 1
-  %t106 = sub i32 %t104, %t105
-  %t107 = add i32 0, 0
-  %t108 = or i32 %t106, %t107
-  store i32 %t108, ptr %cursorRow
-  %t109 = add i32 0, 79
-  store i32 %t109, ptr %cursorCol
-  %t110 = load i32, ptr %cursorRow
-  %t111 = add i32 0, 80
-  %t112 = mul i32 %t110, %t111
-  %t113 = load i32, ptr %cursorCol
-  %t114 = add i32 %t112, %t113
-  %t115 = add i32 0, 0
-  %t116 = or i32 %t114, %t115
-  store i32 %t116, ptr %off
-  %t117 = load i32, ptr %off
-  %t118 = add i32 0, 32
-  %t119 = add i32 0, 10
-  %t120 = call i64 @vgaWriteChar(i32 %t117, i32 %t118, i32 %t119)
-  %t121 = trunc i64 %t120 to i32
-  br label %merge.9
-merge.9:
+  store i32 %t86, ptr %cursorRow
+  %t87 = add i32 0, 79
+  store i32 %t87, ptr %cursorCol
+  %t88 = load i32, ptr %cursorRow
+  %t89 = add i32 0, 80
+  %t90 = mul i32 %t88, %t89
+  %t91 = load i32, ptr %cursorCol
+  %t92 = add i32 %t90, %t91
+  %t93 = add i32 0, 0
+  %t94 = or i32 %t92, %t93
+  store i32 %t94, ptr %off
+  %t95 = load i32, ptr %off
+  %t96 = add i32 0, 32
+  %t97 = add i32 0, 10
+  %t98 = call i64 @vgaWriteChar(i32 %t95, i32 %t96, i32 %t97)
+  %t99 = trunc i64 %t98 to i32
   br label %merge.8
 merge.8:
   br label %merge.7
-else.7:
-  %t122 = load i32, ptr %cursorRow
-  %t123 = add i32 0, 80
-  %t124 = mul i32 %t122, %t123
-  %t125 = load i32, ptr %cursorCol
-  %t126 = add i32 %t124, %t125
-  %t127 = add i32 0, 0
-  %t128 = or i32 %t126, %t127
-  store i32 %t128, ptr %off
-  %t129 = load i32, ptr %off
-  %t130 = load i32, ptr %ascii
-  %t131 = add i32 0, 10
-  %t132 = call i64 @vgaWriteChar(i32 %t129, i32 %t130, i32 %t131)
-  %t133 = trunc i64 %t132 to i32
-  %t134 = load i32, ptr %cursorCol
-  %t135 = add i32 0, 1
-  %t136 = add i32 %t134, %t135
-  %t137 = add i32 0, 0
-  %t138 = or i32 %t136, %t137
-  store i32 %t138, ptr %cursorCol
-  %t139 = load i32, ptr %cursorCol
-  %t140 = add i32 0, 80
-  %t141 = icmp sge i32 %t139, %t140
-  %t142 = zext i1 %t141 to i32
-  %t143 = icmp ne i32 %t142, 0
-  br i1 %t143, label %then.10, label %merge.10
-then.10:
-  %t144 = add i32 0, 0
-  store i32 %t144, ptr %cursorCol
-  %t145 = load i32, ptr %cursorRow
-  %t146 = add i32 0, 1
-  %t147 = add i32 %t145, %t146
-  %t148 = add i32 0, 0
-  %t149 = or i32 %t147, %t148
-  store i32 %t149, ptr %cursorRow
-  br label %merge.10
-merge.10:
-  br label %merge.7
 merge.7:
   br label %merge.6
+else.6:
+  %t100 = load i32, ptr %cursorRow
+  %t101 = add i32 0, 80
+  %t102 = mul i32 %t100, %t101
+  %t103 = load i32, ptr %cursorCol
+  %t104 = add i32 %t102, %t103
+  %t105 = add i32 0, 0
+  %t106 = or i32 %t104, %t105
+  store i32 %t106, ptr %off
+  %t107 = load i32, ptr %off
+  %t108 = load i32, ptr %ascii
+  %t109 = add i32 0, 10
+  %t110 = call i64 @vgaWriteChar(i32 %t107, i32 %t108, i32 %t109)
+  %t111 = trunc i64 %t110 to i32
+  %t112 = load i32, ptr %cursorCol
+  %t113 = add i32 0, 1
+  %t114 = add i32 %t112, %t113
+  %t115 = add i32 0, 0
+  %t116 = or i32 %t114, %t115
+  store i32 %t116, ptr %cursorCol
+  %t117 = load i32, ptr %cursorCol
+  %t118 = add i32 0, 80
+  %t119 = icmp sge i32 %t117, %t118
+  %t120 = zext i1 %t119 to i32
+  %t121 = icmp ne i32 %t120, 0
+  br i1 %t121, label %then.9, label %merge.9
+then.9:
+  %t122 = add i32 0, 0
+  store i32 %t122, ptr %cursorCol
+  %t123 = load i32, ptr %cursorRow
+  %t124 = add i32 0, 1
+  %t125 = add i32 %t123, %t124
+  %t126 = add i32 0, 0
+  %t127 = or i32 %t125, %t126
+  store i32 %t127, ptr %cursorRow
+  br label %merge.9
+merge.9:
+  br label %merge.6
 merge.6:
-  %t150 = load i32, ptr %cursorRow
-  %t151 = add i32 0, 25
-  %t152 = icmp sge i32 %t150, %t151
-  %t153 = zext i1 %t152 to i32
-  %t154 = icmp ne i32 %t153, 0
-  br i1 %t154, label %then.11, label %merge.11
-then.11:
-  %t155 = call i64 @vgaClearScreen()
-  %t156 = trunc i64 %t155 to i32
-  %t157 = add i32 0, 2
-  store i32 %t157, ptr %cursorRow
-  %t158 = add i32 0, 0
-  store i32 %t158, ptr %cursorCol
-  br label %merge.11
-merge.11:
   br label %merge.5
 merge.5:
+  %t128 = load i32, ptr %cursorRow
+  %t129 = add i32 0, 25
+  %t130 = icmp sge i32 %t128, %t129
+  %t131 = zext i1 %t130 to i32
+  %t132 = icmp ne i32 %t131, 0
+  br i1 %t132, label %then.10, label %merge.10
+then.10:
+  %t133 = call i64 @vgaClearScreen()
+  %t134 = trunc i64 %t133 to i32
+  %t135 = add i32 0, 2
+  store i32 %t135, ptr %cursorRow
+  %t136 = add i32 0, 0
+  store i32 %t136, ptr %cursorCol
+  br label %merge.10
+merge.10:
   br label %merge.4
 merge.4:
   br label %merge.3
-else.3:
-  %t159 = load i32, ptr %scancode
-  %t160 = add i32 0, 128
-  %t161 = sub i32 %t159, %t160
-  %t162 = load i32, ptr %lastCode
-  %t163 = icmp eq i32 %t161, %t162
-  %t164 = zext i1 %t163 to i32
-  %t165 = icmp ne i32 %t164, 0
-  br i1 %t165, label %then.12, label %merge.12
-then.12:
-  %t166 = add i32 0, 0
-  store i32 %t166, ptr %lastCode
-  br label %merge.12
-merge.12:
-  br label %merge.3
 merge.3:
   br label %merge.2
+else.2:
+  %t137 = load i32, ptr %scancode
+  %t138 = add i32 0, 128
+  %t139 = sub i32 %t137, %t138
+  %t140 = load i32, ptr %lastCode
+  %t141 = icmp eq i32 %t139, %t140
+  %t142 = zext i1 %t141 to i32
+  %t143 = icmp ne i32 %t142, 0
+  br i1 %t143, label %then.11, label %merge.11
+then.11:
+  %t144 = add i32 0, 0
+  store i32 %t144, ptr %lastCode
+  br label %merge.11
+merge.11:
+  br label %merge.2
 merge.2:
-  br label %loop.1
-exit.1:
-  %t167 = add i32 0, 0
-  ret i32 %t167
+  br label %merge.1
+merge.1:
+  br label %loop.0
+exit.0:
+  %t145 = add i32 0, 0
+  ret i32 %t145
   ret i32 0
 }
 

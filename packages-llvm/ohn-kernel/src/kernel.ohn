@@ -57,16 +57,10 @@ function scancodeToAscii(code) {
 }
 
 // ── kernelMain: self-contained kernel entry point ─────────────────────────
-function kernelMain(vga, msg1, len1, msg2, len2, msg3, len3, msg4, len4, msg5, len5) {
+// Banner is written by boot.c before calling us.
+// We only handle the interactive keyboard polling loop.
+function kernelMain() {
     ohn_vgaClearScreen();
-
-    // Write banner row 0
-    let i0 = 0;
-    while (i0 < len1) {
-        const c0   = msg1[i0] | 0;
-        ohn_vgaWriteChar(i0, c0, 15); // White color (15)
-        i0 = (i0 + 1) | 0;
-    }
 
     let cursorRow = 2;
     let cursorCol = 0;

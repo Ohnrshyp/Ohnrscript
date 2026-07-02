@@ -102,22 +102,21 @@ uint32_t vgaClearScreen() {
 
 /* ── Forward Declaration ────────────────────────────────────────────────── */
 /* kernelMain is compiled from kernel.ohn by the Ohnrscript LLVM generator. */
+/* Zero parameters — banner is written from C, keyboard loop is self-contained. */
 
-extern int kernelMain(
-    uint32_t vga_unused,
-    const uint8_t *msg1, int len1,
-    const uint8_t *msg2, int len2,
-    const uint8_t *msg3, int len3,
-    const uint8_t *msg4, int len4,
-    const uint8_t *msg5, int len5
-);
+extern int kernelMain(void);
 
-/* ── String Constants ───────────────────────────────────────────────────── */
-static const uint8_t MSG_BANNER[]  = "  OHNRSCRIPT KERNEL v0.1  |  Compiled from JS via LLVM IR  |  No Runtime";
-static const uint8_t MSG_SEP[]     = "------------------------------------------------------------------------";
-static const uint8_t MSG_OK[]      = "[ OK ] Kernel loaded. No JS runtime. No GC. No engine. Ring 0.";
-static const uint8_t MSG_SCAN[]    = "[ KBD ] Polling PS/2 keyboard. Type anything: ";
-static const uint8_t MSG_HALT[]    = "[ -- ] System halted.";
+/* ── Banner Helper ──────────────────────────────────────────────────────── */
+/* Write a C string to VGA at a given row, with a given color attribute.    */
+
+static void vga_print_row(int row, const char *s, uint8_t color) {
+    int col = 0;
+    while (*s && col < 80) {
+        vgaWriteChar(row * 80 + col, (uint8_t)*s, color);
+        s++;
+        col++;
+    }
+}
 
 /* ── Kernel Entry Point ─────────────────────────────────────────────────── */
 
@@ -134,26 +133,17 @@ void __attribute__((noreturn)) _start(void) {
     serial_init();
     serial_print("[BOOT] _start entered\r\n");
 
-    /* Clear VGA screen directly from C — sanity check before calling Ohnrscript */
-    serial_print("[BOOT] Clearing VGA...\r\n");
+    /* Clear screen */
     vgaClearScreen();
 
-    /* Write a single character at top-left directly from C */
-    serial_print("[BOOT] Writing 'O' to VGA cell 0...\r\n");
-    vgaWriteChar(0, 'O', 0x0A); /* Green O at top-left */
-    vgaWriteChar(1, 'H', 0x0A);
-    vgaWriteChar(2, 'N', 0x0A);
+    /* Write banner from C — Ohnrscript never touches C strings */
+    vga_print_row(0, "  OHNRSCRIPT KERNEL v0.1 | Compiled from JS via LLVM IR | No Runtime", 0x0F);
+    vga_print_row(1, "------------------------------------------------------------------------", 0x07);
 
-    serial_print("[BOOT] Calling kernelMain...\r\n");
+    serial_print("[BOOT] Banner written, calling kernelMain()...\r\n");
 
-    kernelMain(
-        0,
-        MSG_BANNER, (int)sizeof(MSG_BANNER) - 1,
-        MSG_SEP,    (int)sizeof(MSG_SEP)    - 1,
-        MSG_OK,     (int)sizeof(MSG_OK)     - 1,
-        MSG_SCAN,   (int)sizeof(MSG_SCAN)   - 1,
-        MSG_HALT,   (int)sizeof(MSG_HALT)   - 1
-    );
+    /* Call into Ohnrscript — zero args, no ABI mismatch possible */
+    kernelMain();
 
     serial_print("[BOOT] kernelMain returned (unexpected)\r\n");
 

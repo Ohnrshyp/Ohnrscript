@@ -1,0 +1,14 @@
+const inb = __extern('inb');
+
+function processKeystroke(port) {
+    let result = 0;
+    while (1) {
+        result = inb(port);
+        if (result !== 0) {
+            break;
+        }
+    }
+    return result;
+}
+
+processKeystroke(96);

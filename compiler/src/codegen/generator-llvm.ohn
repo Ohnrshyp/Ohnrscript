@@ -319,6 +319,9 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
     // ============================================================
     let tmp_counter = 0;  // SSA temp counter — increments monotonically
     let block_counter = 0;  // Basic block counter for unique labels
+    let loop_stack = [];    // For tracking break/continue targets
+    let extern_map = {};    // Maps local identifier offsets to C function name string offsets
+    let function_signatures = {}; // Maps function name intern_off to param_count
 
     // param_set: intern offsets of current function's parameters.
     // Parameters are SSA values already in registers — they do NOT have allocas
@@ -531,6 +534,12 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
                 const ci_base = ci_tf & 0xFF;
                 if (ci_base === NODE_FUNCTION_DECLARATION) {
                     top_fns.push(ci);
+                    // Extract signature for arity checking
+                    const name_node = ast_nodes[(ci + 2) | 0] | 0;
+                    const name_off = ast_nodes[(name_node + 2) | 0] | 0;
+                    const f_extra_start = ast_nodes[(ci + 3) | 0] | 0;
+                    const param_count = ast_extra[f_extra_start] | 0;
+                    function_signatures[name_off] = param_count;
                 } else {
                     top_stmts.push(ci);
                 }
@@ -602,6 +611,7 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
                 // Reset counters for the synthetic getter function scope
                 tmp_counter = 0;
                 block_counter = 0;
+                loop_stack = [];
                 param_set = {};
 
                 // Emit getter: define ptr @__get_module_exports_<mod>()
@@ -650,6 +660,20 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
                 walk(top_fns[fi]);
             }
 
+            // Emit all FFI extern declarations collected during the walk
+            const unique_externs = {};
+            for (let name_off in extern_map) {
+                const str_off = extern_map[name_off];
+                unique_externs[String(str_off)] = str_off;
+            }
+            const ext_offs = Object.values(unique_externs);
+            for (let ei = 0; ei < ext_offs.length; ei = (ei + 1) | 0) {
+                const str_off = ext_offs[ei] | 0;
+                emitter.emit(Buffer.from('declare i64 @'), 0, 13);
+                emitter.emit(intern_pool, str_off, intern_length(str_off));
+                emitter.emit(Buffer.from('(...)\n'), 0, 6);
+            }
+
             return -1;
         }
 
@@ -668,6 +692,7 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             // Reset per-function SSA and block counters for readable IR
             tmp_counter = 0;
             block_counter = 0;
+            loop_stack = [];
             param_set = {}; // clear previous function's params
 
             // ── ALLOCA HOISTING: pre-walk body to collect all variable names ──
@@ -815,17 +840,44 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             const init_idx = d2 | 0;
             const name_off = ast_nodes[(name_node + 2) | 0] | 0;
 
-            // Check if init is a Float32Array NewExpression
+            // Check if init is a Float32Array NewExpression or an __extern call
             let init_is_float_ptr = false;
+            let is_extern = false;
             if (init_idx >= 0) {
                 const init_tf = ast_nodes[init_idx] | 0;
-                if (((init_tf & 0xFF) === NODE_NEW_EXPRESSION) && ((init_tf & FLAG_FLOAT) !== 0)) {
+                const init_base = init_tf & 0xFF;
+                if (init_base === NODE_NEW_EXPRESSION && (init_tf & FLAG_FLOAT) !== 0) {
                     init_is_float_ptr = true;
+                } else if (init_base === NODE_CALL_EXPRESSION) {
+                    const callee_idx = ast_nodes[(init_idx + 2) | 0] | 0;
+                    if ((ast_nodes[callee_idx] & 0xFF) === NODE_IDENTIFIER) {
+                        const callee_off = ast_nodes[(callee_idx + 2) | 0] | 0;
+                        const callee_len = intern_length(callee_off) | 0;
+                        // '__extern' = 8 bytes
+                        if (callee_len === 8 &&
+                            intern_pool[callee_off] === 95 && intern_pool[(callee_off + 1) | 0] === 95 &&
+                            intern_pool[(callee_off + 2) | 0] === 101 && intern_pool[(callee_off + 3) | 0] === 120 &&
+                            intern_pool[(callee_off + 4) | 0] === 116 && intern_pool[(callee_off + 5) | 0] === 101 &&
+                            intern_pool[(callee_off + 6) | 0] === 114 && intern_pool[(callee_off + 7) | 0] === 110) {
+                            
+                            const extra_start = ast_nodes[(init_idx + 3) | 0] | 0;
+                            const arg_count = (init_tf >>> 16) | 0;
+                            if (arg_count >= 1) {
+                                const arg_idx = ast_extra[extra_start] | 0;
+                                const arg_tf = ast_nodes[arg_idx] | 0;
+                                if ((arg_tf & 0xFF) === NODE_LITERAL && (arg_tf & FLAG_STRING) !== 0) {
+                                    const str_off = ast_nodes[(arg_idx + 2) | 0] | 0;
+                                    extern_map[name_off] = str_off;
+                                    is_extern = true;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
             // Evaluate initializer and store (alloca already emitted by collect_allocas)
-            if (init_idx >= 0) {
+            if (init_idx >= 0 && !is_extern) {
                 const val_t = walk(init_idx) | 0;
                 if (val_t >= 0) {
                     if (global_set[name_off]) {
@@ -905,7 +957,6 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             emitter.emit(LLVM_NEWLINE, 0, 1);
             return t | 0;
         }
-
 
         // ── BinaryExpression (0x0C) ──
         if (base === NODE_BINARY_EXPRESSION) {
@@ -1200,7 +1251,16 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             // body.<N>:
             emit_label(BODY_LABEL, blk);
             emitter.emit(LLVM_LABEL_COLON, 0, 2);
+            loop_stack.push({
+                loop: LOOP_LABEL,
+                loop_blk: blk,
+                update: LOOP_LABEL,
+                update_blk: blk,
+                exit: EXIT_LABEL,
+                exit_blk: blk
+            });
             walk(body_idx);
+            loop_stack.pop();
             emitter.emit(LLVM_BR, 0, LLVM_BR.length);
             emit_label(LOOP_LABEL, blk);
             emitter.emit(LLVM_BR_NL, 0, 1);
@@ -1266,7 +1326,16 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             // forbody.<N>:
             emit_label(BODY_LABEL, blk);
             emitter.emit(LLVM_LABEL_COLON, 0, 2);
+            loop_stack.push({
+                loop: LOOP_LABEL,
+                loop_blk: blk,
+                update: UPDATE_LABEL,
+                update_blk: blk,
+                exit: EXIT_LABEL,
+                exit_blk: blk
+            });
             walk(body_idx);
+            loop_stack.pop();
             emitter.emit(LLVM_BR, 0, LLVM_BR.length);
             emit_label(UPDATE_LABEL, blk);
             emitter.emit(LLVM_BR_NL, 0, 1);
@@ -1340,6 +1409,36 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             // merge.<N>:
             emit_label(MERGE_LABEL, blk);
             emitter.emit(LLVM_LABEL_COLON, 0, 2);
+            return -1;
+        }
+
+        // ── BreakStatement (0x12) ──
+        if (base === NODE_BREAK_STATEMENT) {
+            if (loop_stack.length > 0) {
+                const ls = loop_stack[loop_stack.length - 1];
+                emitter.emit(LLVM_BR, 0, LLVM_BR.length);
+                emit_label(ls.exit, ls.exit_blk);
+                emitter.emit(LLVM_BR_NL, 0, 1);
+            } else {
+                // Illegal break
+                emitter.emit(LLVM_UNSUPPORTED, 0, LLVM_UNSUPPORTED.length);
+                emitter.emit(Buffer.from('0x12 (break outside loop)\n'), 0, 26);
+            }
+            return -1;
+        }
+
+        // ── ContinueStatement (0x13) ──
+        if (base === NODE_CONTINUE_STATEMENT) {
+            if (loop_stack.length > 0) {
+                const ls = loop_stack[loop_stack.length - 1];
+                emitter.emit(LLVM_BR, 0, LLVM_BR.length);
+                emit_label(ls.update, ls.update_blk);
+                emitter.emit(LLVM_BR_NL, 0, 1);
+            } else {
+                // Illegal continue
+                emitter.emit(LLVM_UNSUPPORTED, 0, LLVM_UNSUPPORTED.length);
+                emitter.emit(Buffer.from('0x13 (continue outside loop)\n'), 0, 29);
+            }
             return -1;
         }
 
@@ -1437,8 +1536,6 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
         }
 
         // ── CallExpression (0x05) ──
-        // Intercept require('module') calls and translate to lazy getter.
-        // All other calls emit unsupported for now.
         if (base === NODE_CALL_EXPRESSION) {
             // d1 = callee idx, d2 = extra_start: [arg_count, ...args]
             const callee_idx = d1 | 0;
@@ -1446,43 +1543,33 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             const callee_tf = ast_nodes[callee_idx] | 0;
             const callee_base = callee_tf & 0xFF;
 
-            // Check if callee is an Identifier named 'require'
             if (callee_base === NODE_IDENTIFIER) {
                 const callee_off = ast_nodes[(callee_idx + 2) | 0] | 0;
                 const callee_len = intern_length(callee_off) | 0;
-                // 'require' is 7 bytes: r=114 e=101 q=113 u=117 i=105 r=114 e=101
+                
+                // 1. Intercept require('module')
                 if (callee_len === 7 &&
-                    intern_pool[callee_off] === 114 &&  // r
-                    intern_pool[(callee_off + 1) | 0] === 101 && // e
-                    intern_pool[(callee_off + 2) | 0] === 113 && // q
-                    intern_pool[(callee_off + 3) | 0] === 117 && // u
-                    intern_pool[(callee_off + 4) | 0] === 105 && // i
-                    intern_pool[(callee_off + 5) | 0] === 114 && // r
-                    intern_pool[(callee_off + 6) | 0] === 101) { // e
-                    // This is require('module_name')
-                    // Get the module name string from the first argument
-                    const arg_count = ast_extra[extra_start] | 0;
+                    intern_pool[callee_off] === 114 && intern_pool[(callee_off + 1) | 0] === 101 &&
+                    intern_pool[(callee_off + 2) | 0] === 113 && intern_pool[(callee_off + 3) | 0] === 117 &&
+                    intern_pool[(callee_off + 4) | 0] === 105 && intern_pool[(callee_off + 5) | 0] === 114 &&
+                    intern_pool[(callee_off + 6) | 0] === 101) {
+                    
+                    const arg_count = (tf >>> 16) | 0;
                     if (arg_count >= 1) {
-                        const arg_idx = ast_extra[(extra_start + 1) | 0] | 0;
+                        const arg_idx = ast_extra[extra_start] | 0;
                         const arg_tf = ast_nodes[arg_idx] | 0;
-                        const arg_base = arg_tf & 0xFF;
-                        if (arg_base === NODE_LITERAL && (arg_tf & FLAG_STRING) !== 0) {
-                            // d1 of Literal string = intern offset of the string value
+                        if ((arg_tf & 0xFF) === NODE_LITERAL && (arg_tf & FLAG_STRING) !== 0) {
                             const str_off = ast_nodes[(arg_idx + 2) | 0] | 0;
                             const str_len = intern_length(str_off) | 0;
-                            // Sanitize module name: replace non-alphanumeric with _
                             let mod_buf = '';
                             for (let si = 0; si < str_len; si = (si + 1) | 0) {
                                 const ch = intern_pool[(str_off + si) | 0];
-                                if ((ch >= 65 && ch <= 90) ||   // A-Z
-                                    (ch >= 97 && ch <= 122) ||  // a-z
-                                    (ch >= 48 && ch <= 57)) {   // 0-9
+                                if ((ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) || (ch >= 48 && ch <= 57)) {
                                     mod_buf += String.fromCharCode(ch);
                                 } else {
                                     mod_buf += '_';
                                 }
                             }
-                            // Emit: %t<N> = call ptr @__get_module_exports_<mod>()
                             const t = next_tmp() | 0;
                             emit_tmp_def(t);
                             emitter.emit(LLVM_CALL_GET_PFX, 0, LLVM_CALL_GET_PFX.length);
@@ -1492,6 +1579,90 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
                             return t | 0;
                         }
                     }
+                }
+                
+                // 2. FFI Call to __extern function
+                if (extern_map[callee_off] !== undefined) {
+                    const ext_str_off = extern_map[callee_off] | 0;
+                    const arg_count = (tf >>> 16) | 0;
+                    
+                    // Evaluate all arguments
+                    const arg_temps = [];
+                    for (let i = 0; i < arg_count; i = (i + 1) | 0) {
+                        const arg_idx = ast_extra[(extra_start + i) | 0] | 0;
+                        arg_temps.push(walk(arg_idx) | 0);
+                    }
+                    
+                    const t = next_tmp() | 0;
+                    emit_tmp_def(t);
+                    // Emit: = call i64 @func_name(
+                    emitter.emit(Buffer.from(' = call i64 @'), 0, 13);
+                    emitter.emit(intern_pool, ext_str_off, intern_length(ext_str_off));
+                    emitter.emit(LLVM_FUNC_ARGS, 0, 1);
+                    
+                    for (let i = 0; i < arg_count; i = (i + 1) | 0) {
+                        if (i > 0) emitter.emit(LLVM_COMMA_SPACE, 0, 2);
+                        // All FFI arguments are passed as i64.
+                        // We must zext our i32 temp to i64 for the call.
+                        // Actually, to do this inline we'd need an extra instruction.
+                        // Wait! In LLVM, you can't just pass an i32 to an i64 parameter without a zext/sext.
+                        // If the declaration is variadic `(...)`, we can pass i32 directly!
+                        emitter.emit(Buffer.from('i32 '), 0, 4);
+                        emit_tmp_ref(arg_temps[i]);
+                    }
+                    emitter.emit(LLVM_CALL_RPAREN, 0, 2);
+                    
+                    // The result is i64. We must truncate it back to i32 to maintain the memory model.
+                    const trunc_t = next_tmp() | 0;
+                    emit_tmp_def(trunc_t);
+                    emitter.emit(Buffer.from(' = trunc i64 %t'), 0, 15);
+                    const lent = int_to_ascii(t) | 0;
+                    emitter.emit(num_scratch, 0, lent);
+                    emitter.emit(Buffer.from(' to i32\n'), 0, 8);
+                    
+                    return trunc_t | 0;
+                }
+                
+                // 3. User-Defined Function Call
+                if (function_signatures[callee_off] !== undefined) {
+                    const expected_args = function_signatures[callee_off] | 0;
+                    const arg_count = (tf >>> 16) | 0;
+                    
+                    if (arg_count !== expected_args) {
+                        throw new Error(`[Ohnrscript] Arity mismatch in call: Expected ${expected_args} arguments, but got ${arg_count}.`);
+                    }
+                    
+                    const arg_temps = [];
+                    for (let i = 0; i < arg_count; i = (i + 1) | 0) {
+                        const arg_idx = ast_extra[(extra_start + i) | 0] | 0;
+                        const arg_i32 = walk(arg_idx) | 0;
+                        
+                        // Zext to i64 (all Ohnrscript params are i64 for unified pointer/int ABI)
+                        const arg_i64 = next_tmp() | 0;
+                        emit_tmp_def(arg_i64);
+                        emitter.emit(Buffer.from(' = zext i32 %t'), 0, 14);
+                        const lena = int_to_ascii(arg_i32) | 0;
+                        emitter.emit(num_scratch, 0, lena);
+                        emitter.emit(Buffer.from(' to i64\n'), 0, 8);
+                        
+                        arg_temps.push(arg_i64);
+                    }
+                    
+                    const t = next_tmp() | 0;
+                    emit_tmp_def(t);
+                    emitter.emit(Buffer.from(' = call i32 @'), 0, 13);
+                    emitter.emit(intern_pool, callee_off, callee_len);
+                    emitter.emit(LLVM_FUNC_ARGS, 0, 1);
+                    
+                    for (let i = 0; i < arg_count; i = (i + 1) | 0) {
+                        if (i > 0) emitter.emit(LLVM_COMMA_SPACE, 0, 2);
+                        emitter.emit(Buffer.from('i64 %t'), 0, 6);
+                        const lent = int_to_ascii(arg_temps[i]) | 0;
+                        emitter.emit(num_scratch, 0, lent);
+                    }
+                    emitter.emit(LLVM_CALL_RPAREN, 0, 2);
+                    
+                    return t | 0;
                 }
             }
 

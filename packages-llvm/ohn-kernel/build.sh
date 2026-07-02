@@ -152,9 +152,9 @@ fi
 
 # ── Step 4: Compile both objects ─────────────────────────────────────────
 echo ""
-echo "  [3/5] Compiling kernel.ll → kernel.o (x86_64-elf freestanding)..."
+echo "  [3/5] Compiling kernel.ll → kernel.o (i386-elf freestanding)..."
 "${CLANG}" \
-    -target x86_64-elf \
+    -target i386-elf \
     -ffreestanding \
     -fno-builtin \
     -fno-stack-protector \
@@ -164,9 +164,9 @@ echo "  [3/5] Compiling kernel.ll → kernel.o (x86_64-elf freestanding)..."
 echo "  Done → ${KERNEL_OBJ}"
 
 echo ""
-echo "  [4/5] Compiling boot.c → boot.o (x86_64-elf freestanding)..."
+echo "  [4/5] Compiling boot.c → boot.o (i386-elf freestanding)..."
 "${CLANG}" \
-    -target x86_64-elf \
+    -target i386-elf \
     -ffreestanding \
     -fno-builtin \
     -fno-stack-protector \
@@ -179,6 +179,7 @@ echo "  Done → ${BOOT_OBJ}"
 echo ""
 echo "  [5/5] Linking → kernel.elf..."
 ld.lld \
+    -m elf_i386 \
     -T "${LINKER}" \
     "${KERNEL_OBJ}" "${BOOT_OBJ}" \
     -o "${ELF_OUT}"
@@ -195,12 +196,13 @@ echo ""
 
 if [ "$1" = "run" ]; then
     echo "  Booting in QEMU..."
-    echo "  (Close QEMU window or press Ctrl+C to stop)"
+    echo "  (Serial debug output will appear here. Close QEMU window or Ctrl+C to stop)"
     echo ""
-    qemu-system-x86_64 \
+    qemu-system-i386 \
         -kernel "${ELF_OUT}" \
         -m 32M \
         -display curses \
+        -serial stdio \
         -no-reboot \
         -no-shutdown
 fi

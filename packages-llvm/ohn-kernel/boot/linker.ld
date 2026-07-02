@@ -6,7 +6,7 @@
  * in the first 32KB of the binary.
  */
 
-OUTPUT_FORMAT(elf64-x86-64)
+OUTPUT_FORMAT(elf32-i386)
 ENTRY(_start)
 
 SECTIONS
@@ -14,13 +14,9 @@ SECTIONS
     /* Load at 1MB — standard multiboot kernel load address */
     . = 0x100000;
 
-    /* Multiboot header MUST come first */
-    .multiboot : {
-        *(.multiboot)
-    }
-
     /* Executable code */
-    .text ALIGN(4096) : {
+    .text : {
+        *(.multiboot)
         *(.text)
         *(.text.*)
     }

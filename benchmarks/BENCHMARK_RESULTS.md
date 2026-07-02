@@ -736,7 +736,7 @@ These results are reproducible, independently verifiable, and available for clea
 
 ---
 
-## 10. Phase 4: LLVM IR Native Compilation
+## 11. Phase 4: LLVM IR Native Compilation
 
 *Added July 1, 2026 — four days after initial development began*
 
@@ -848,7 +848,7 @@ Requirements: Node.js ≥ 18, LLVM/clang ≥ 15, Apple Silicon (ARM64) or x86-64
 
 ---
 
-## 10. The Ultimate Validation: Bare-Metal Kernel Execution
+## 12. The Ultimate Validation: Bare-Metal Kernel Execution
 
 To conclusively prove that Ohnrscript's architecture is a pure native compilation pipeline—and not merely a wrapped runtime simulation—we engineered the **Ohnrscript Kernel (v0.1)**. 
 

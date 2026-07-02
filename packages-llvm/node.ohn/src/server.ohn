@@ -1,0 +1,93 @@
+// server.ohn — node.ohn Top-Level Entry Point
+// Written in Ohnrscript. Self-hosted compile: ohnrscript server.ohn → server.ll
+//
+// Architecture:
+//   1. Suppress SIGPIPE globally.
+//   2. Query CPU core count.
+//   3. Fork N-1 worker processes (current process becomes worker 0).
+//   4. Each worker enters the kqueue/epoll event loop independently.
+//   5. OS kernel load-balances connections across all workers via SO_REUSEPORT.
+
+// ── Externs from bindings.c (all params are i64 to match Ohnrscript ABI) ──
+extern ohn_suppress_sigpipe();
+extern ohn_cpu_count();
+extern ohn_socket_tcp();
+extern ohn_socket_set_reuseport(fd);
+extern ohn_socket_nonblock(fd);
+extern ohn_socket_bind(fd, port);
+extern ohn_socket_listen(fd, backlog);
+extern ohn_socket_close(fd);
+extern ohn_cpu_count();
+
+// fork() is a direct libc call — returns 0 in child, PID in parent, -1 on error
+extern fork();
+
+// Platform event loop entry points (implemented in loop.ohn)
+extern ohn_event_loop_run(listen_fd);
+
+function createListenSocket(port) {
+    let fd = ohn_socket_tcp() | 0;
+    if (fd < 0) {
+        return -1;
+    }
+
+    let r = ohn_socket_set_reuseport(fd) | 0;
+    if (r < 0) {
+        ohn_socket_close(fd);
+        return -1;
+    }
+
+    r = ohn_socket_nonblock(fd) | 0;
+    if (r < 0) {
+        ohn_socket_close(fd);
+        return -1;
+    }
+
+    r = ohn_socket_bind(fd, port) | 0;
+    if (r < 0) {
+        ohn_socket_close(fd);
+        return -1;
+    }
+
+    // Backlog of 4096 — allows kernel to queue incoming connections
+    // before accept() is called. NGINX uses 511, Actix uses 1024.
+    r = ohn_socket_listen(fd, 4096) | 0;
+    if (r < 0) {
+        ohn_socket_close(fd);
+        return -1;
+    }
+
+    return fd;
+}
+
+function main() {
+    // 1. Globally suppress SIGPIPE before any socket work.
+    ohn_suppress_sigpipe();
+
+    let PORT = 8080;
+    let listen_fd = createListenSocket(PORT) | 0;
+    if (listen_fd < 0) {
+        return 1;
+    }
+
+    // 2. Fork N-1 additional worker processes.
+    //    Each worker shares the same listen_fd (SO_REUSEPORT
+    //    ensures the kernel distributes connections, not us).
+    let cores = ohn_cpu_count() | 0;
+    let i = 1;
+    while (i < cores) {
+        let pid = fork() | 0;
+        if (pid == 0) {
+            // Child: drop into event loop immediately.
+            ohn_event_loop_run(listen_fd);
+            return 0;
+        }
+        // Parent: continue forking.
+        i = (i + 1) | 0;
+    }
+
+    // 3. Parent process also becomes a worker.
+    ohn_event_loop_run(listen_fd);
+
+    return 0;
+}

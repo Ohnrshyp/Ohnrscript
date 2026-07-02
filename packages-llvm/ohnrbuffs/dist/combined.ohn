@@ -1,0 +1,79 @@
+// ohnrbuffs.ohn
+// Core memory writing functions for Ohnrbuffs
+
+// Writes a 32-bit integer to the word-aligned offset in the buffer.
+function ohnr_writeI32(buffer, wordOffset, value) {
+    buffer[wordOffset] = value | 0;
+    return (wordOffset + 1) | 0;
+}
+
+// Reads a 32-bit integer from the word-aligned offset in the buffer.
+function ohnr_readI32(buffer, wordOffset) {
+    return buffer[wordOffset] | 0;
+}
+
+// Writes a string to the buffer.
+// Since this is a bare-metal benchmark, strings are represented as 
+// sequential 32-bit words for maximum throughput (4 bytes per word).
+// The first word is the string length.
+function ohnr_writeString(buffer, wordOffset, strPtr, strLen) {
+    let offset = wordOffset | 0;
+    buffer[offset] = strLen | 0;
+    offset = (offset + 1) | 0;
+    
+    let i = 0;
+    while (i < strLen) {
+        buffer[offset] = strPtr[i] | 0;
+        offset = (offset + 1) | 0;
+        i = (i + 1) | 0;
+    }
+    
+    return offset | 0;
+}
+
+function ohnr_readStringLen(buffer, wordOffset) {
+    return buffer[wordOffset] | 0;
+}
+
+function ohnr_skipString(buffer, wordOffset) {
+    let len = buffer[wordOffset] | 0;
+    return (wordOffset + 1 + len) | 0;
+}
+// payload.ohn
+// Ohnrscript implementation of the RegistrationPayload schema
+
+// The main benchmark entry point called by bench.c
+function benchmarkDecode(buffer, iterations) {
+    let finalChecksum = 0;
+    let iter = 0;
+    
+    while (iter < iterations) {
+        let offset = 0;
+        let checksum = 0;
+        
+        // Read 20 integers
+        let i = 0;
+        while (i < 20) {
+            let val = buffer[offset] | 0;
+            // Write back to prevent LLVM from optimizing out the entire loop
+            buffer[offset] = (val + 1) | 0; 
+            checksum = (checksum + val) | 0;
+            offset = (offset + 1) | 0;
+            i = (i + 1) | 0;
+        }
+        
+        // Read 20 strings (skipping them)
+        i = 0;
+        while (i < 20) {
+            let strLen = buffer[offset] | 0;
+            checksum = (checksum + strLen) | 0;
+            offset = (offset + 1 + strLen) | 0;
+            i = (i + 1) | 0;
+        }
+        
+        finalChecksum = (finalChecksum + checksum) | 0;
+        iter = (iter + 1) | 0;
+    }
+    
+    return finalChecksum | 0;
+}

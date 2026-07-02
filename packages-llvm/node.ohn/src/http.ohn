@@ -1,0 +1,48 @@
+// http.ohn — Ohnrscript Raw HTTP Parser
+// 
+// Scans the incoming DOD buffer for the '\r\n\r\n' end-of-header sequence.
+// Operates exclusively on flat memory pointers (no string allocation).
+
+let CR = 13; // '\r'
+let LF = 10; // '\n'
+
+// Returns the index of the byte immediately following '\r\n\r\n',
+// or -1 if the sequence is not found yet (incomplete headers).
+//
+// buf_ptr: Absolute pointer to the start of the slot's ring buffer (i64).
+// total_bytes: The number of bytes read so far into the buffer.
+function http_find_headers_end(buf_ptr, total_bytes) {
+    if ((total_bytes | 0) < 4) {
+        return -1;
+    }
+
+    let i = 0;
+    let limit = (total_bytes - 3) | 0;
+
+    while (i < limit) {
+        // Ohnrscript pointer arithmetic & dereferencing using pseudo-externs
+        // In reality, the compiler will lower this to `load i8, ptr %addr`.
+        let b0 = ohn_mem_read_i8(buf_ptr, i) | 0;
+        
+        if (b0 == CR) {
+            let b1 = ohn_mem_read_i8(buf_ptr, (i + 1) | 0) | 0;
+            if (b1 == LF) {
+                let b2 = ohn_mem_read_i8(buf_ptr, (i + 2) | 0) | 0;
+                if (b2 == CR) {
+                    let b3 = ohn_mem_read_i8(buf_ptr, (i + 3) | 0) | 0;
+                    if (b3 == LF) {
+                        return (i + 4) | 0; // Header ends, body begins
+                    }
+                }
+            }
+        }
+        i = (i + 1) | 0;
+    }
+
+    return -1;
+}
+
+// ── Memory Access Stub ──
+// Emitted natively by the LLVM compiler. 
+// Reads 1 byte from (ptr + offset).
+extern ohn_mem_read_i8(ptr, offset);

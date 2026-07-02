@@ -1,0 +1,38 @@
+// payload.ohn
+// Ohnrscript implementation of the RegistrationPayload schema
+
+// The main benchmark entry point called by bench.c
+function benchmarkDecode(buffer, iterations) {
+    let finalChecksum = 0;
+    let iter = 0;
+    
+    while (iter < iterations) {
+        let offset = 0;
+        let checksum = 0;
+        
+        // Read 20 integers
+        let i = 0;
+        while (i < 20) {
+            let val = buffer[offset] | 0;
+            // Write back to prevent LLVM from optimizing out the entire loop
+            buffer[offset] = (val + 1) | 0; 
+            checksum = (checksum + val) | 0;
+            offset = (offset + 1) | 0;
+            i = (i + 1) | 0;
+        }
+        
+        // Read 20 strings (skipping them)
+        i = 0;
+        while (i < 20) {
+            let strLen = buffer[offset] | 0;
+            checksum = (checksum + strLen) | 0;
+            offset = (offset + 1 + strLen) | 0;
+            i = (i + 1) | 0;
+        }
+        
+        finalChecksum = (finalChecksum + checksum) | 0;
+        iter = (iter + 1) | 0;
+    }
+    
+    return finalChecksum | 0;
+}

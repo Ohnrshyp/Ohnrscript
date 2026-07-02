@@ -1,0 +1,59 @@
+// mpsc.ohn — Lock-Free Multi-Producer Single-Consumer Queue
+// Written in Ohnrscript.
+//
+// Prevents the "eventfd Wakeup Storm" deadlocks.
+// Background threads (producers) push completion events to this queue atomically.
+// They only write to the eventfd pipe if they transition the queue from Empty to Not-Empty.
+// The main event loop (consumer) drains the queue instantly in user-space.
+
+let MPSC_CAPACITY = 16384; // Power of 2 for fast modulo
+let MPSC_MASK = 16383;     // Capacity - 1
+
+// Ring buffer for IPC events (e.g., storing the slot ID of completed work)
+let mpsc_queue = new Int32Array(MPSC_CAPACITY);
+
+// In LLVM Ohnrscript, we will need atomic intrinsics mapped to flat variables.
+// For now, we simulate the head/tail indices.
+let mpsc_head = 0; // Written by producers
+let mpsc_tail = 0; // Written by consumer (main loop)
+
+// Extern for atomic compare-and-swap (to be implemented via LLVM atomicrmw)
+extern ohn_atomic_add(ptr, val);
+
+// Producer: Push an event onto the queue from a background thread.
+// Returns 1 if the queue was previously empty (meaning we should signal eventfd).
+// Returns 0 if already populated (skip eventfd).
+// Returns -1 if queue is full.
+function mpsc_push(slot) {
+    let current_head = mpsc_head | 0;
+    let next_head = (current_head + 1) & MPSC_MASK;
+
+    if (next_head == (mpsc_tail | 0)) {
+        // Queue full — in a real implementation we might block or spin
+        return -1; 
+    }
+
+    // Atomic push logic (simulated until full LLVM atomic lowering is built)
+    mpsc_queue[current_head] = slot;
+    mpsc_head = next_head;
+
+    // Was it empty?
+    if (current_head == (mpsc_tail | 0)) {
+        return 1; // Signal eventfd!
+    }
+    return 0; // Already awake
+}
+
+// Consumer: Drain a single event from the queue in the main loop.
+// Returns the slot ID, or -1 if empty.
+function mpsc_pop() {
+    let current_tail = mpsc_tail | 0;
+    if (current_tail == (mpsc_head | 0)) {
+        // Queue is empty
+        return -1;
+    }
+
+    let slot = mpsc_queue[current_tail] | 0;
+    mpsc_tail = (current_tail + 1) & MPSC_MASK;
+    return slot;
+}

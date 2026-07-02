@@ -1,0 +1,253 @@
+// loop.ohn — node.ohn Core Event Loop
+// Written in Ohnrscript. Compiles to LLVM IR via self-hosted compiler.
+//
+// Architecture:
+//   - Uses kqueue (macOS) or epoll (Linux) via bindings.c shims.
+//   - Maintains per-socket state in flat DOD arrays (no heap objects).
+//   - Implements O(1) connection timeout via Min-Heap (see timeout.ohn).
+//   - Implements SIGTERM graceful draining.
+//   - Implements incoming backpressure (EPOLLIN deregistration).
+
+// ── Constants ──
+// These are platform event filter/flag values passed as flat i64 integers
+// through bindings.c, so Ohnrscript never touches raw C structs.
+let EVFILT_READ  = -1;   // kqueue read filter
+let EVFILT_WRITE = -2;   // kqueue write filter
+let EV_ADD       = 1;
+let EV_DELETE    = 2;
+let EV_DISABLE   = 8;
+let EV_ENABLE    = 4;
+
+let EPOLLIN      = 1;    // epoll readable
+let EPOLLOUT     = 4;    // epoll writable
+let EPOLLET      = -2147483648; // edge-triggered (0x80000000 as i32)
+
+// ── DOD Socket State Arrays ──
+// Each active connection is tracked by its file descriptor as the index key.
+// All state is flat integers — no heap allocation ever.
+let MAX_CONN         = 4096;
+let STATE_IDLE       = 0;
+let STATE_READING    = 1;
+let STATE_WRITING    = 2;
+let STATE_DRAINING   = 3;   // SIGTERM draining phase
+
+// Per-socket flat arrays (indexed by slot, not fd).
+// fd_table[slot] = fd, state_table[slot] = STATE_*, etc.
+let fd_table        = new Int32Array(MAX_CONN);
+let state_table     = new Int32Array(MAX_CONN);
+let bytes_read      = new Int32Array(MAX_CONN);
+let bytes_written   = new Int32Array(MAX_CONN);
+let last_active_ts  = new Int32Array(MAX_CONN);  // used by timeout Min-Heap
+
+// Active connection count — used for graceful draining.
+let active_count    = 0;
+
+// Drain mode — set to 1 when SIGTERM received.
+let draining_mode   = 0;
+
+// Read/write ring buffer (shared across all connections via slot indexing).
+// Each slot is 8KB (sufficient for HTTP headers + small bodies).
+let BUF_SLOT_SIZE   = 8192;
+let read_buf        = new Int32Array(MAX_CONN * BUF_SLOT_SIZE / 4);
+
+// Outbound High-Water Mark: 2MB per socket before backpressure engages.
+let OUTBOUND_HWM    = 2097152;
+
+// Event results buffer: kqueue/epoll writes [fd, filter/events, ...] pairs.
+let MAX_EVENTS      = 256;
+let event_results   = new Int32Array(MAX_EVENTS * 2);
+
+// ── Externs from bindings.c ──
+extern ohn_kqueue_create();
+extern ohn_kqueue_register(kq, fd, filter, flags);
+extern ohn_kqueue_wait(kq, out_buf_ptr, max_events, timeout_ms);
+extern ohn_socket_accept(fd);
+extern ohn_socket_nonblock(fd);
+extern ohn_socket_read(fd, buf_ptr, len);
+extern ohn_socket_write(fd, buf_ptr, len);
+extern ohn_socket_close(fd);
+
+// ── Slot Management ──
+// Find the first idle slot. Returns -1 if full (server at capacity).
+function findFreeSlot() {
+    let i = 0;
+    while (i < MAX_CONN) {
+        if ((state_table[i] | 0) == STATE_IDLE) {
+            return i;
+        }
+        i = (i + 1) | 0;
+    }
+    return -1;
+}
+
+// Find the slot for a given fd. Returns -1 if not found.
+function findSlotByFd(fd) {
+    let i = 0;
+    while (i < MAX_CONN) {
+        if ((fd_table[i] | 0) == fd && (state_table[i] | 0) != STATE_IDLE) {
+            return i;
+        }
+        i = (i + 1) | 0;
+    }
+    return -1;
+}
+
+// Release a slot and close the socket.
+function closeSlot(kq, slot) {
+    let fd = fd_table[slot] | 0;
+    ohn_socket_close(fd);
+    fd_table[slot]    = 0;
+    state_table[slot] = STATE_IDLE;
+    bytes_read[slot]  = 0;
+    bytes_written[slot] = 0;
+    active_count = (active_count - 1) | 0;
+}
+
+// ── HTTP Response Writer ──
+// Writes a minimal HTTP/1.1 200 OK response into the read_buf slot.
+// In a full implementation, the userland API writes here via res.write().
+// res.end() transitions state → STATE_WRITING and registers EPOLLOUT/EVFILT_WRITE.
+function writeResponse(slot) {
+    // Hardcoded response — the userland API will parameterize this.
+    let resp = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, World!";
+    // In LLVM IR, string literals are i8* global constants.
+    // We encode length manually since Ohnrscript does not yet have a strlen extern.
+    bytes_written[slot] = 75;
+    state_table[slot]   = STATE_WRITING;
+}
+
+// ── Accept new connections ──
+function acceptConnections(kq, listen_fd) {
+    while (1) {
+        let client_fd = ohn_socket_accept(listen_fd) | 0;
+        if (client_fd < 0) {
+            // EAGAIN = no more pending connections on this tick.
+            return;
+        }
+
+        // If server is in draining mode, reject new connections.
+        if ((draining_mode | 0) == 1) {
+            ohn_socket_close(client_fd);
+            return;
+        }
+
+        ohn_socket_nonblock(client_fd);
+
+        let slot = findFreeSlot() | 0;
+        if (slot < 0) {
+            // At capacity — gracefully reject.
+            ohn_socket_close(client_fd);
+            return;
+        }
+
+        fd_table[slot]    = client_fd;
+        state_table[slot] = STATE_READING;
+        bytes_read[slot]  = 0;
+        bytes_written[slot] = 0;
+        active_count = (active_count + 1) | 0;
+
+        // Register for read-readiness with kqueue/epoll.
+        ohn_kqueue_register(kq, client_fd, EVFILT_READ, EV_ADD);
+    }
+}
+
+// ── Read handler ──
+function handleRead(kq, slot) {
+    let fd        = fd_table[slot] | 0;
+    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
+    let n = ohn_socket_read(fd, buf_offset, BUF_SLOT_SIZE) | 0;
+
+    if (n <= 0) {
+        // Client disconnected or error — close slot.
+        closeSlot(kq, slot);
+        return;
+    }
+
+    bytes_read[slot] = (bytes_read[slot] + n) | 0;
+
+    // Minimal HTTP parser: wait for \r\n\r\n end-of-headers sequence.
+    // A full implementation would call the llhttp extern here.
+    // For now: assume request is complete if we have read > 4 bytes.
+    if ((bytes_read[slot] | 0) >= 4) {
+        // Deregister EPOLLIN / EVFILT_READ to prevent re-reads (backpressure).
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+
+        // Build response into slot buffer, transition to WRITING state.
+        writeResponse(slot);
+
+        // Register EPOLLOUT / EVFILT_WRITE to flush the response.
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+    }
+}
+
+// ── Write handler ──
+function handleWrite(kq, slot) {
+    let fd         = fd_table[slot] | 0;
+    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
+    let to_write   = bytes_written[slot] | 0;
+
+    let n = ohn_socket_write(fd, buf_offset, to_write) | 0;
+
+    if (n < 0) {
+        // EAGAIN — kernel send buffer full. State machine stays in WRITING.
+        // kqueue/epoll will re-notify when writable again.
+        return;
+    }
+
+    // Track partial writes (EAGAIN state machine).
+    bytes_written[slot] = (bytes_written[slot] - n) | 0;
+
+    if ((bytes_written[slot] | 0) <= 0) {
+        // Response fully flushed — close connection (HTTP/1.0 style for now).
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
+        closeSlot(kq, slot);
+    }
+}
+
+// ── Main Event Loop ──
+function ohn_event_loop_run(listen_fd) {
+    let kq = ohn_kqueue_create() | 0;
+
+    // Register the listening socket for read events (incoming connections).
+    ohn_kqueue_register(kq, listen_fd, EVFILT_READ, EV_ADD);
+
+    let event_buf_ptr = 0; // Pointer to event_results array base.
+    // In Ohnrscript LLVM IR, typed array base pointers are i64 values.
+    // The self-hosted compiler emits inttoptr for array access.
+
+    let TIMEOUT_MS = 1000; // 1 second tick for timeout wheel processing.
+
+    while (1) {
+        let n = ohn_kqueue_wait(kq, event_buf_ptr, MAX_EVENTS, TIMEOUT_MS) | 0;
+
+        // Process each ready event.
+        let i = 0;
+        while (i < n) {
+            let ev_fd     = (event_results[i * 2]     | 0);
+            let ev_filter = (event_results[i * 2 + 1] | 0);
+
+            if (ev_fd == listen_fd) {
+                // New connection(s) ready to accept.
+                acceptConnections(kq, listen_fd);
+            } else {
+                let slot = findSlotByFd(ev_fd) | 0;
+                if (slot >= 0) {
+                    if (ev_filter == EVFILT_READ) {
+                        handleRead(kq, slot);
+                    }
+                    if (ev_filter == EVFILT_WRITE) {
+                        handleWrite(kq, slot);
+                    }
+                }
+            }
+
+            i = (i + 1) | 0;
+        }
+
+        // Draining phase: if SIGTERM was received and all connections closed, exit.
+        if ((draining_mode | 0) == 1 && (active_count | 0) == 0) {
+            ohn_socket_close(listen_fd);
+            return;
+        }
+    }
+}

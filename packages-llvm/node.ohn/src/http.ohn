@@ -24,13 +24,13 @@ function http_find_headers_end(buf_ptr, total_bytes) {
         // In reality, the compiler will lower this to `load i8, ptr %addr`.
         let b0 = ohn_mem_read_i8(buf_ptr, i) | 0;
         
-        if (b0 == CR) {
+        if (b0 === CR) {
             let b1 = ohn_mem_read_i8(buf_ptr, (i + 1) | 0) | 0;
-            if (b1 == LF) {
+            if (b1 === LF) {
                 let b2 = ohn_mem_read_i8(buf_ptr, (i + 2) | 0) | 0;
-                if (b2 == CR) {
+                if (b2 === CR) {
                     let b3 = ohn_mem_read_i8(buf_ptr, (i + 3) | 0) | 0;
-                    if (b3 == LF) {
+                    if (b3 === LF) {
                         return (i + 4) | 0; // Header ends, body begins
                     }
                 }
@@ -45,4 +45,4 @@ function http_find_headers_end(buf_ptr, total_bytes) {
 // ── Memory Access Stub ──
 // Emitted natively by the LLVM compiler. 
 // Reads 1 byte from (ptr + offset).
-extern ohn_mem_read_i8(ptr, offset);
+const ohn_mem_read_i8 = __extern('sys_mem_read_i8');

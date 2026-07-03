@@ -1,0 +1,105 @@
+// worker.ohn
+// JS-like Abstraction Layer for POSIX threads and MPSC queues.
+
+const ext_sys_worker_alloc = __extern('sys_worker_alloc');
+const ext_sys_mpsc_push = __extern('sys_mpsc_push');
+const ext_sys_mpsc_pop = __extern('sys_mpsc_pop');
+const ext_sys_worker_sleep = __extern('sys_worker_sleep');
+const ext_sys_thread_create = __extern('sys_thread_create');
+const ext_sys_thread_join = __extern('sys_thread_join');
+const ext_sys_alloc_dummy_arena = __extern('sys_alloc_dummy_arena');
+const ohn_puts = __extern('puts');
+const ohn_exit = __extern('exit');
+
+// Spawns a new lock-free POSIX thread, allocating the WorkerState and MPSC queue
+function spawnWorker() {
+    let ws = ext_sys_worker_alloc() | 0;
+    ext_sys_thread_create(ws);
+    return ws; // Returning the pointer as an integer representing the Worker handle
+}
+
+// Pushes a Transfer Arena into the worker's mailbox.
+// This is the lock-free zero-copy handoff.
+function postMessage(worker_ws, arena_ptr) {
+    let status = ext_sys_mpsc_push(worker_ws, arena_ptr) | 0;
+    if (status === -1) {
+        // EXPLICIT BACKPRESSURE: Queue is full.
+        ohn_puts("Error: Worker mailbox full (Ring Buffer Overflow)\n");
+        ohn_exit(1);
+    }
+}
+
+// Used inside the worker thread to read the mailbox.
+// Blocks (using semaphores, no spin-locking) until a message arrives.
+function receiveMessage(ws_ptr) {
+    // 1. Try a fast non-blocking pop
+    let arena = ext_sys_mpsc_pop(ws_ptr) | 0;
+    if (arena !== 0) {
+        return arena;
+    }
+    
+    // 2. Queue empty. We must sleep (sys_worker_sleep sets is_sleeping = 1, then sem_wait).
+    ext_sys_worker_sleep(ws_ptr);
+    
+    // 3. Woke up. The queue should have data now.
+    let arena2 = ext_sys_mpsc_pop(ws_ptr) | 0;
+    return arena2;
+}
+
+// Joins the worker thread, triggering the Panic Leak Drain in bindings.c
+function joinWorker(worker_ws) {
+    ext_sys_thread_join(worker_ws);
+}
+// main.ohn
+// Test harness for workers.ohn
+
+const ext_print_main_start = __extern('print_main_start');
+const ext_print_main_alloc = __extern('print_main_alloc');
+const ext_print_main_handoff = __extern('print_main_handoff');
+const ext_print_main_wait = __extern('print_main_wait');
+const ext_print_main_done = __extern('print_main_done');
+
+const ext_print_worker_start = __extern('print_worker_start');
+const ext_print_worker_recv = __extern('print_worker_recv');
+const ext_print_worker_empty = __extern('print_worker_empty');
+const ext_print_worker_exit = __extern('print_worker_exit');
+
+function myWorkerFunction(ws_ptr) {
+    ext_print_worker_start();
+    
+    // Blocks safely via semaphore until data arrives
+    let arena = receiveMessage(ws_ptr) | 0;
+    
+    if (arena !== 0) {
+        ext_print_worker_recv();
+        // We now own the Arena. We would process it and free it.
+    } else {
+        ext_print_worker_empty();
+    }
+    
+    ext_print_worker_exit();
+    return 0;
+}
+
+function main() {
+    ext_print_main_start();
+    
+    // 1. Spawn worker thread (entry point is hardcoded in C bindings to myWorkerFunction)
+    let worker_handle = spawnWorker() | 0;
+    
+    ext_print_main_alloc();
+    let arena = ext_sys_alloc_dummy_arena() | 0;
+    
+    ext_print_main_handoff();
+    postMessage(worker_handle, arena);
+    
+    // 2. Destructive Nullification (Prevent Use-After-Transfer)
+    // Manually nullifying the pointer reference in user-space testing
+    arena = 0; 
+    
+    ext_print_main_wait();
+    joinWorker(worker_handle);
+    
+    ext_print_main_done();
+    return 0;
+}

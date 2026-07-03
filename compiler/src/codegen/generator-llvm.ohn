@@ -604,7 +604,7 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
                     emitter.emit(LLVM_AT, 0, 1); // '@'
                     const vlen = intern_length(vn_off) | 0;
                     emitter.emit(intern_pool, vn_off, vlen);
-                    emitter.emit(Buffer.from(' = global i32 0\n'), 0, 16);
+                    emitter.emit(Buffer.from(' = global ptr null\n'), 0, 18);
                 }
                 emitter.emit(LLVM_NEWLINE, 0, 1);
 
@@ -846,7 +846,7 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             if (init_idx >= 0) {
                 const init_tf = ast_nodes[init_idx] | 0;
                 const init_base = init_tf & 0xFF;
-                if (init_base === NODE_NEW_EXPRESSION && (init_tf & FLAG_FLOAT) !== 0) {
+                if (init_base === NODE_NEW_EXPRESSION) {
                     init_is_float_ptr = true;
                 } else if (init_base === NODE_CALL_EXPRESSION) {
                     const callee_idx = ast_nodes[(init_idx + 2) | 0] | 0;
@@ -881,8 +881,12 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
                 const val_t = walk(init_idx) | 0;
                 if (val_t >= 0) {
                     if (global_set[name_off]) {
-                        // Top-level global: store i32 %t<N>, ptr @name
-                        emitter.emit(Buffer.from('  store i32 '), 0, 12);
+                        // Top-level global
+                        if (init_is_float_ptr) {
+                            emitter.emit(Buffer.from('  store ptr '), 0, 12);
+                        } else {
+                            emitter.emit(Buffer.from('  store i32 '), 0, 12);
+                        }
                         emit_tmp_ref(val_t);
                         emitter.emit(Buffer.from(', ptr @'), 0, 7);
                         const nlen2 = intern_length(name_off) | 0;
@@ -908,6 +912,23 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
                 }
             }
             return -1;
+        }
+
+        // ── UnaryExpression (0x0F) ──
+        if (base === NODE_UNARY_EXPRESSION) {
+            const op_token = (tf >>> 16) | 0;
+            const arg_t = walk(d1) | 0;
+            const t = next_tmp() | 0;
+            emit_tmp_def(t);
+            if (op_token === 71) { // TOKEN_MINUS
+                emitter.emit(Buffer.from(' = sub i32 0, %t'), 0, 16);
+            } else {
+                emitter.emit(Buffer.from(' = add i32 0, %t'), 0, 16);
+            }
+            const lent = int_to_ascii(arg_t) | 0;
+            emitter.emit(num_scratch, 0, lent);
+            emitter.emit(LLVM_NEWLINE, 0, 1);
+            return t | 0;
         }
 
         // ── Identifier (0x03) — read path ──
@@ -1442,34 +1463,23 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
             return -1;
         }
 
-        // ── NewExpression (0x10) — Float32Array ──
+        // ── NewExpression (0x10) — Float32Array/Int32Array ──
         if (base === NODE_NEW_EXPRESSION) {
-            if (is_float) {
-                // new Float32Array(count) → call float* @ohn_alloc_f32(i32 %t<count>)
-                // d2 = extra_start: [arg_count, ...args]
-                const extra_start = d2 | 0;
-                const arg_count = ast_extra[extra_start] | 0;
-                let size_t = -1;
-                if (arg_count > 0) {
-                    size_t = walk(ast_extra[(extra_start + 1) | 0] | 0) | 0;
-                }
-                const t = next_tmp() | 0;
-                emit_tmp_def(t);
-                emitter.emit(LLVM_CALL_PTR, 0, LLVM_CALL_PTR.length);
-                const len = int_to_ascii(size_t) | 0;
-                emitter.emit(num_scratch, 0, len);
-                emitter.emit(LLVM_CALL_RPAREN, 0, 2);
-                return t | 0;
+            // new Int32Array(count) → call ptr @ohn_alloc_f32(i32 %t<count>)
+            // d2 = extra_start: [arg_count, ...args]
+            const extra_start = d2 | 0;
+            const arg_count = ast_extra[extra_start] | 0;
+            let size_t = -1;
+            if (arg_count > 0) {
+                size_t = walk(ast_extra[(extra_start + 1) | 0] | 0) | 0;
             }
-            // Generic new expression — unsupported in first pass
-            emitter.emit(LLVM_UNSUPPORTED, 0, LLVM_UNSUPPORTED.length);
-            const len = int_to_hex(base) | 0;
-            emitter.emit(hex_scratch, 0, len);
-            emitter.emit(LLVM_NEWLINE, 0, 1);
-            const ne_dummy = next_tmp() | 0;
-            emit_tmp_def(ne_dummy);
-            emitter.emit(Buffer.from(' = add i32 0, 0\n'), 0, 16);
-            return ne_dummy | 0;
+            const t = next_tmp() | 0;
+            emit_tmp_def(t);
+            emitter.emit(LLVM_CALL_PTR, 0, LLVM_CALL_PTR.length);
+            const len = int_to_ascii(size_t) | 0;
+            emitter.emit(num_scratch, 0, len);
+            emitter.emit(LLVM_CALL_RPAREN, 0, 2);
+            return t | 0;
         }
 
         // ── MemberExpression computed (0x07 | FLAG_COMPUTED) — array read ──

@@ -44,7 +44,7 @@ function outbound_dequeue(slot, bytes_sent) {
 
     // If we were paused and the queue has drained significantly (e.g. half HWM),
     // we unpause and fire the internal 'drain' event to userland.
-    if ((paused_state[slot] | 0) == 1) {
+    if ((paused_state[slot] | 0) === 1) {
         let low_water_mark = (OUTBOUND_HWM / 2) | 0;
         if (remaining <= low_water_mark) {
             paused_state[slot] = 0;

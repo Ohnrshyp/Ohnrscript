@@ -1,0 +1,102 @@
+const sys_disk_init = __extern('ext_sys_disk_init');
+const sys_lba_read = __extern('ext_sys_lba_read');
+const sys_lba_write = __extern('ext_sys_lba_write');
+const sys_frame_write_byte = __extern('ext_sys_frame_write_byte');
+const sys_frame_read_byte = __extern('ext_sys_frame_read_byte');
+const sys_frame_write_i32 = __extern('ext_sys_frame_write_i32');
+const sys_frame_read_i32 = __extern('ext_sys_frame_read_i32');
+const sys_rwlock_init = __extern('ext_sys_rwlock_init');
+const sys_rwlock_rlock = __extern('ext_sys_rwlock_rlock');
+const sys_rwlock_wlock = __extern('ext_sys_rwlock_wlock');
+const sys_rwlock_unlock = __extern('ext_sys_rwlock_unlock');
+const print_boot = __extern('ext_print_boot');
+const print_success = __extern('ext_print_success');
+const print_num = __extern('ext_print_num');
+
+const BLOCK_SIZE = 4096;
+const NUM_FRAMES = 1024; // 4MB Buffer Pool
+
+// LBA to Frame_ID Page Table
+const pageTable = new Int32Array(NUM_FRAMES * 2); // [LBA, is_dirty]
+
+// RWLocks are managed inside bindings.c to avoid 64-bit pointer truncation issues in Ohnrscript AOT
+
+function db_init() {
+    sys_disk_init();
+
+    let i = 0;
+    while (i < NUM_FRAMES) {
+        pageTable[i * 2] = -1;
+        pageTable[(i * 2) + 1] = 0;
+
+        sys_rwlock_init(i);
+
+        i = i + 1;
+    }
+}
+
+function db_read_page(lba) {
+    let frame_id = lba % NUM_FRAMES;
+
+    sys_rwlock_rlock(frame_id);
+
+    let cached_lba = pageTable[frame_id * 2];
+    if (cached_lba === lba) {
+        sys_rwlock_unlock(frame_id);
+        return frame_id;
+    }
+
+    sys_rwlock_unlock(frame_id);
+    sys_rwlock_wlock(frame_id);
+
+    let is_dirty = pageTable[(frame_id * 2) + 1];
+    if (is_dirty === 1) {
+        let old_lba = pageTable[frame_id * 2];
+        sys_lba_write(old_lba, 1, frame_id);
+    }
+
+    sys_lba_read(lba, 1, frame_id);
+    pageTable[frame_id * 2] = lba;
+    pageTable[(frame_id * 2) + 1] = 0; 
+
+    sys_rwlock_unlock(frame_id);
+    return frame_id;
+}
+
+function db_write_page(lba) {
+    let frame_id = lba % NUM_FRAMES;
+
+    sys_rwlock_wlock(frame_id);
+
+    let cached_lba = pageTable[frame_id * 2];
+    if (cached_lba !== lba) {
+        let is_dirty = pageTable[(frame_id * 2) + 1];
+        if (is_dirty === 1) {
+            let old_lba = pageTable[frame_id * 2];
+            sys_lba_write(old_lba, 1, frame_id);
+        }
+        pageTable[frame_id * 2] = lba;
+    }
+
+    pageTable[(frame_id * 2) + 1] = 1;
+
+    sys_rwlock_unlock(frame_id);
+    return frame_id;
+}
+
+function db_flush_all() {
+    let i = 0;
+    while (i < NUM_FRAMES) {
+        sys_rwlock_wlock(i);
+        
+        let is_dirty = pageTable[(i * 2) + 1];
+        if (is_dirty === 1) {
+            let lba = pageTable[i * 2];
+            sys_lba_write(lba, 1, i);
+            pageTable[(i * 2) + 1] = 0;
+        }
+        
+        sys_rwlock_unlock(i);
+        i = i + 1;
+    }
+}

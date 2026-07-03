@@ -18,7 +18,7 @@ let mpsc_head = 0; // Written by producers
 let mpsc_tail = 0; // Written by consumer (main loop)
 
 // Extern for atomic compare-and-swap (to be implemented via LLVM atomicrmw)
-extern ohn_atomic_add(ptr, val);
+const ohn_atomic_add = __extern('sys_atomic_add');
 
 // Producer: Push an event onto the queue from a background thread.
 // Returns 1 if the queue was previously empty (meaning we should signal eventfd).
@@ -28,7 +28,7 @@ function mpsc_push(slot) {
     let current_head = mpsc_head | 0;
     let next_head = (current_head + 1) & MPSC_MASK;
 
-    if (next_head == (mpsc_tail | 0)) {
+    if (next_head === (mpsc_tail | 0)) {
         // Queue full — in a real implementation we might block or spin
         return -1; 
     }
@@ -38,7 +38,7 @@ function mpsc_push(slot) {
     mpsc_head = next_head;
 
     // Was it empty?
-    if (current_head == (mpsc_tail | 0)) {
+    if (current_head === (mpsc_tail | 0)) {
         return 1; // Signal eventfd!
     }
     return 0; // Already awake
@@ -48,7 +48,7 @@ function mpsc_push(slot) {
 // Returns the slot ID, or -1 if empty.
 function mpsc_pop() {
     let current_tail = mpsc_tail | 0;
-    if (current_tail == (mpsc_head | 0)) {
+    if (current_tail === (mpsc_head | 0)) {
         // Queue is empty
         return -1;
     }

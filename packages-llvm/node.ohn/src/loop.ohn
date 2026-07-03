@@ -20,7 +20,7 @@ let EV_ENABLE    = 4;
 
 let EPOLLIN      = 1;    // epoll readable
 let EPOLLOUT     = 4;    // epoll writable
-let EPOLLET      = -2147483648; // edge-triggered (0x80000000 as i32)
+let EPOLLET      = -2147483647 - 1; // edge-triggered (0x80000000 as i32)
 
 // ── DOD Socket State Arrays ──
 // Each active connection is tracked by its file descriptor as the index key.
@@ -58,21 +58,22 @@ let MAX_EVENTS      = 256;
 let event_results   = new Int32Array(MAX_EVENTS * 2);
 
 // ── Externs from bindings.c ──
-extern ohn_kqueue_create();
-extern ohn_kqueue_register(kq, fd, filter, flags);
-extern ohn_kqueue_wait(kq, out_buf_ptr, max_events, timeout_ms);
-extern ohn_socket_accept(fd);
-extern ohn_socket_nonblock(fd);
-extern ohn_socket_read(fd, buf_ptr, len);
-extern ohn_socket_write(fd, buf_ptr, len);
-extern ohn_socket_close(fd);
+const ohn_kqueue_create = __extern('sys_kqueue_create');
+const ohn_kqueue_register = __extern('sys_kqueue_register');
+const ohn_kqueue_wait = __extern('sys_kqueue_wait');
+const ohn_socket_accept = __extern('sys_socket_accept');
+const ohn_socket_nonblock = __extern('sys_socket_nonblock');
+const ohn_socket_read = __extern('sys_socket_read');
+const ohn_socket_write = __extern('sys_socket_write');
+const ohn_socket_close = __extern('sys_socket_close');
+const ohn_fill_http_response = __extern('sys_fill_http_response');
 
 // ── Slot Management ──
 // Find the first idle slot. Returns -1 if full (server at capacity).
 function findFreeSlot() {
     let i = 0;
     while (i < MAX_CONN) {
-        if ((state_table[i] | 0) == STATE_IDLE) {
+        if ((state_table[i] | 0) === STATE_IDLE) {
             return i;
         }
         i = (i + 1) | 0;
@@ -84,7 +85,7 @@ function findFreeSlot() {
 function findSlotByFd(fd) {
     let i = 0;
     while (i < MAX_CONN) {
-        if ((fd_table[i] | 0) == fd && (state_table[i] | 0) != STATE_IDLE) {
+        if ((fd_table[i] | 0) === fd && (state_table[i] | 0) !== STATE_IDLE) {
             return i;
         }
         i = (i + 1) | 0;
@@ -108,10 +109,9 @@ function closeSlot(kq, slot) {
 // In a full implementation, the userland API writes here via res.write().
 // res.end() transitions state → STATE_WRITING and registers EPOLLOUT/EVFILT_WRITE.
 function writeResponse(slot) {
-    // Hardcoded response — the userland API will parameterize this.
-    let resp = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, World!";
-    // In LLVM IR, string literals are i8* global constants.
-    // We encode length manually since Ohnrscript does not yet have a strlen extern.
+    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
+    // Bypassing string literal parser limitation using C
+    ohn_fill_http_response(buf_offset);
     bytes_written[slot] = 75;
     state_table[slot]   = STATE_WRITING;
 }
@@ -122,13 +122,13 @@ function acceptConnections(kq, listen_fd) {
         let client_fd = ohn_socket_accept(listen_fd) | 0;
         if (client_fd < 0) {
             // EAGAIN = no more pending connections on this tick.
-            return;
+            return 0;
         }
 
         // If server is in draining mode, reject new connections.
-        if ((draining_mode | 0) == 1) {
+        if ((draining_mode | 0) === 1) {
             ohn_socket_close(client_fd);
-            return;
+            return 0;
         }
 
         ohn_socket_nonblock(client_fd);
@@ -137,7 +137,7 @@ function acceptConnections(kq, listen_fd) {
         if (slot < 0) {
             // At capacity — gracefully reject.
             ohn_socket_close(client_fd);
-            return;
+            return 0;
         }
 
         fd_table[slot]    = client_fd;
@@ -160,7 +160,7 @@ function handleRead(kq, slot) {
     if (n <= 0) {
         // Client disconnected or error — close slot.
         closeSlot(kq, slot);
-        return;
+        return 0;
     }
 
     bytes_read[slot] = (bytes_read[slot] + n) | 0;
@@ -191,7 +191,7 @@ function handleWrite(kq, slot) {
     if (n < 0) {
         // EAGAIN — kernel send buffer full. State machine stays in WRITING.
         // kqueue/epoll will re-notify when writable again.
-        return;
+        return 0;
     }
 
     // Track partial writes (EAGAIN state machine).
@@ -226,16 +226,16 @@ function ohn_event_loop_run(listen_fd) {
             let ev_fd     = (event_results[i * 2]     | 0);
             let ev_filter = (event_results[i * 2 + 1] | 0);
 
-            if (ev_fd == listen_fd) {
+            if (ev_fd === listen_fd) {
                 // New connection(s) ready to accept.
                 acceptConnections(kq, listen_fd);
             } else {
                 let slot = findSlotByFd(ev_fd) | 0;
                 if (slot >= 0) {
-                    if (ev_filter == EVFILT_READ) {
+                    if (ev_filter === EVFILT_READ) {
                         handleRead(kq, slot);
                     }
-                    if (ev_filter == EVFILT_WRITE) {
+                    if (ev_filter === EVFILT_WRITE) {
                         handleWrite(kq, slot);
                     }
                 }
@@ -245,9 +245,9 @@ function ohn_event_loop_run(listen_fd) {
         }
 
         // Draining phase: if SIGTERM was received and all connections closed, exit.
-        if ((draining_mode | 0) == 1 && (active_count | 0) == 0) {
+        if ((draining_mode | 0) === 1 && (active_count | 0) === 0) {
             ohn_socket_close(listen_fd);
-            return;
+            return 0;
         }
     }
 }

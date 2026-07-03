@@ -1,0 +1,53 @@
+// main.ohn
+// Test harness for workers.ohn
+
+const ext_print_main_start = __extern('print_main_start');
+const ext_print_main_alloc = __extern('print_main_alloc');
+const ext_print_main_handoff = __extern('print_main_handoff');
+const ext_print_main_wait = __extern('print_main_wait');
+const ext_print_main_done = __extern('print_main_done');
+
+const ext_print_worker_start = __extern('print_worker_start');
+const ext_print_worker_recv = __extern('print_worker_recv');
+const ext_print_worker_empty = __extern('print_worker_empty');
+const ext_print_worker_exit = __extern('print_worker_exit');
+
+function myWorkerFunction(ws_ptr) {
+    ext_print_worker_start();
+    
+    // Blocks safely via semaphore until data arrives
+    let arena = receiveMessage(ws_ptr) | 0;
+    
+    if (arena !== 0) {
+        ext_print_worker_recv();
+        // We now own the Arena. We would process it and free it.
+    } else {
+        ext_print_worker_empty();
+    }
+    
+    ext_print_worker_exit();
+    return 0;
+}
+
+function main() {
+    ext_print_main_start();
+    
+    // 1. Spawn worker thread (entry point is hardcoded in C bindings to myWorkerFunction)
+    let worker_handle = spawnWorker() | 0;
+    
+    ext_print_main_alloc();
+    let arena = ext_sys_alloc_dummy_arena() | 0;
+    
+    ext_print_main_handoff();
+    postMessage(worker_handle, arena);
+    
+    // 2. Destructive Nullification (Prevent Use-After-Transfer)
+    // Manually nullifying the pointer reference in user-space testing
+    arena = 0; 
+    
+    ext_print_main_wait();
+    joinWorker(worker_handle);
+    
+    ext_print_main_done();
+    return 0;
+}

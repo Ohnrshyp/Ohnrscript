@@ -36,7 +36,8 @@ function heap_swap(i, j) {
     slot_to_heap_idx[slot_j] = i;
 }
 
-function heap_sift_up(idx) {
+function heap_sift_up(start_idx) {
+    let idx = start_idx | 0;
     while (idx > 0) {
         let parent = ((idx - 1) / 2) | 0;
         let exp_idx = heap_expires[idx] | 0;
@@ -46,13 +47,14 @@ function heap_sift_up(idx) {
             heap_swap(idx, parent);
             idx = parent;
         } else {
-            return;
+            return 0;
         }
     }
 }
 
-function heap_sift_down(idx) {
+function heap_sift_down(start_idx) {
     let size = heap_size | 0;
+    let idx = start_idx | 0;
     while (1) {
         let left = (2 * idx + 1) | 0;
         let right = (2 * idx + 2) | 0;
@@ -74,11 +76,11 @@ function heap_sift_down(idx) {
             }
         }
 
-        if (smallest != idx) {
+        if (smallest !== idx) {
             heap_swap(idx, smallest);
             idx = smallest;
         } else {
-            return;
+            return 0;
         }
     }
 }
@@ -137,7 +139,7 @@ function timeout_remove(slot) {
 // O(1) Check: Returns the slot ID if it has expired relative to current_ts.
 // Returns -1 if nothing has expired.
 function timeout_poll(current_ts) {
-    if ((heap_size | 0) == 0) return -1;
+    if ((heap_size | 0) === 0) return -1;
 
     let min_ts = heap_expires[0] | 0;
     if (min_ts <= current_ts) {

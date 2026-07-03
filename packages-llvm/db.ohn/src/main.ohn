@@ -1,0 +1,68 @@
+// packages-llvm/db.ohn/src/main.ohn
+
+function main() {
+    require('db');
+    print_boot();
+
+    // 1. Initialize Buffer Pool
+    db_init();
+
+    // --- Concurrency Stress Test ---
+    let root_lba = 0;
+    
+    // Pre-populate Root LBA with initial magic number
+    let write_frame_id = db_write_page(root_lba);
+    sys_frame_write_i32(write_frame_id, 0, 728581); 
+    db_release_write_lock(write_frame_id);
+    
+    // Flush to disk so readers get valid data if evicted
+    db_flush_all();
+    
+    // Spawn 4 threads to concurrently read/write to the same LBAs
+    sys_thread_create(1); // writer
+    sys_thread_create(2); // reader
+    sys_thread_create(3); // reader
+    sys_thread_create(4); // writer
+    
+    sys_thread_join(1);
+    sys_thread_join(2);
+    sys_thread_join(3);
+    sys_thread_join(4);
+    
+    print_success();
+    return 0;
+}
+
+// C-bindings will call this function in a new OS thread
+function dbWorkerFunction(worker_id) {
+    let i = 0;
+    let lba = 0;
+    
+    // Even worker IDs are readers, Odd are writers
+    let is_writer = (worker_id % 2) !== 0;
+
+    while (i < 1000) {
+        lba = i % 10; // Contend heavily on LBA 0-9
+        
+        if (is_writer) {
+            let frame_id = db_write_page(lba);
+            // Simulate some work inside the critical section
+            sys_frame_write_i32(frame_id, 0, worker_id);
+            db_release_write_lock(frame_id);
+        } else {
+            let frame_id = db_read_page(lba);
+            // Simulate read work
+            let val = sys_frame_read_i32(frame_id, 0);
+            db_release_read_lock(frame_id);
+        }
+        
+        i = (i + 1) | 0;
+    }
+    
+    return 0;
+}
+
+const sys_thread_create = __extern('ext_sys_thread_create');
+const sys_thread_join = __extern('ext_sys_thread_join');
+
+// Original sync test removed in favor of concurrent thread test

@@ -9,21 +9,19 @@
 //   5. OS kernel load-balances connections across all workers via SO_REUSEPORT.
 
 // ── Externs from bindings.c (all params are i64 to match Ohnrscript ABI) ──
-extern ohn_suppress_sigpipe();
-extern ohn_cpu_count();
-extern ohn_socket_tcp();
-extern ohn_socket_set_reuseport(fd);
-extern ohn_socket_nonblock(fd);
-extern ohn_socket_bind(fd, port);
-extern ohn_socket_listen(fd, backlog);
-extern ohn_socket_close(fd);
-extern ohn_cpu_count();
+const ohn_suppress_sigpipe = __extern('sys_suppress_sigpipe');
+const ohn_cpu_count = __extern('sys_cpu_count');
+const ohn_socket_tcp = __extern('sys_socket_tcp');
+const ohn_socket_set_reuseport = __extern('sys_socket_set_reuseport');
+const ohn_socket_nonblock = __extern('sys_socket_nonblock');
+const ohn_socket_bind = __extern('sys_socket_bind');
+const ohn_socket_listen = __extern('sys_socket_listen');
+const ohn_socket_close = __extern('sys_socket_close');
 
 // fork() is a direct libc call — returns 0 in child, PID in parent, -1 on error
-extern fork();
+const sys_fork = __extern('fork');
 
 // Platform event loop entry points (implemented in loop.ohn)
-extern ohn_event_loop_run(listen_fd);
 
 function createListenSocket(port) {
     let fd = ohn_socket_tcp() | 0;
@@ -61,6 +59,10 @@ function createListenSocket(port) {
 }
 
 function main() {
+    // Force evaluation of top-level statements for this module.
+    // Without this, the initialization block (which sets up globals like EVFILT_READ) is never executed.
+    require('server');
+
     // 1. Globally suppress SIGPIPE before any socket work.
     ohn_suppress_sigpipe();
 
@@ -76,8 +78,8 @@ function main() {
     let cores = ohn_cpu_count() | 0;
     let i = 1;
     while (i < cores) {
-        let pid = fork() | 0;
-        if (pid == 0) {
+        let pid = sys_fork() | 0;
+        if (pid === 0) {
             // Child: drop into event loop immediately.
             ohn_event_loop_run(listen_fd);
             return 0;

@@ -18,54 +18,54 @@ const NUM_FRAMES = 1024; // 4MB Buffer Pool
 
 // LBA to Frame_ID Page Table
 const pageTable = new Int32Array(NUM_FRAMES * 2); // [LBA, is_dirty]
-
-// RWLocks are managed inside bindings.c to avoid 64-bit pointer truncation issues in Ohnrscript AOT
+let wal_tail_lba = 1000000;
 
 function db_init() {
     sys_disk_init();
-
     let i = 0;
     while (i < NUM_FRAMES) {
         pageTable[i * 2] = -1;
         pageTable[(i * 2) + 1] = 0;
-
         sys_rwlock_init(i);
-
-        i = i + 1;
+        i = (i + 1) | 0;
     }
+}
+
+function db_wal_append(frame_id) {
+    sys_lba_write(wal_tail_lba, 1, frame_id);
+    wal_tail_lba = (wal_tail_lba + 1) | 0;
+    return 0;
 }
 
 function db_read_page(lba) {
     let frame_id = lba % NUM_FRAMES;
-
     sys_rwlock_rlock(frame_id);
 
     let cached_lba = pageTable[frame_id * 2];
     if (cached_lba === lba) {
-        sys_rwlock_unlock(frame_id);
-        return frame_id;
+        return frame_id; // Return WITH read lock held
     }
 
     sys_rwlock_unlock(frame_id);
-    sys_rwlock_wlock(frame_id);
+    sys_rwlock_wlock(frame_id); // Escalate to write lock for I/O
 
     let is_dirty = pageTable[(frame_id * 2) + 1];
     if (is_dirty === 1) {
         let old_lba = pageTable[frame_id * 2];
+        db_wal_append(frame_id);
         sys_lba_write(old_lba, 1, frame_id);
     }
 
     sys_lba_read(lba, 1, frame_id);
     pageTable[frame_id * 2] = lba;
     pageTable[(frame_id * 2) + 1] = 0; 
-
-    sys_rwlock_unlock(frame_id);
+    
+    // Demote write lock back to read lock (or just keep write lock in Ohnrscript? Let's just return with write lock for simplicity, reader must release)
     return frame_id;
 }
 
 function db_write_page(lba) {
     let frame_id = lba % NUM_FRAMES;
-
     sys_rwlock_wlock(frame_id);
 
     let cached_lba = pageTable[frame_id * 2];
@@ -73,30 +73,110 @@ function db_write_page(lba) {
         let is_dirty = pageTable[(frame_id * 2) + 1];
         if (is_dirty === 1) {
             let old_lba = pageTable[frame_id * 2];
+            db_wal_append(frame_id);
             sys_lba_write(old_lba, 1, frame_id);
         }
+        // Zero out memory if new page? For now, we assume caller handles it or sys_lba_read happens.
+        // Actually, db_write_page assumes we are going to overwrite it, but we still need to load it from disk if we are mutating a partial page.
+        // For db.ohn, db_write_page should load from disk first if not cached!
+        sys_lba_read(lba, 1, frame_id);
         pageTable[frame_id * 2] = lba;
     }
 
     pageTable[(frame_id * 2) + 1] = 1;
-
-    sys_rwlock_unlock(frame_id);
+    // Return WITH write lock held
     return frame_id;
+}
+
+function db_release_read_lock(frame_id) {
+    sys_rwlock_unlock(frame_id);
+    return 0;
+}
+
+function db_release_write_lock(frame_id) {
+    sys_rwlock_unlock(frame_id);
+    return 0;
 }
 
 function db_flush_all() {
     let i = 0;
     while (i < NUM_FRAMES) {
         sys_rwlock_wlock(i);
-        
         let is_dirty = pageTable[(i * 2) + 1];
         if (is_dirty === 1) {
             let lba = pageTable[i * 2];
+            db_wal_append(i);
             sys_lba_write(lba, 1, i);
             pageTable[(i * 2) + 1] = 0;
         }
-        
         sys_rwlock_unlock(i);
-        i = i + 1;
+        i = (i + 1) | 0;
     }
 }
+
+// ---------------------------------------------------------
+// Slotted Page & B-Tree Primitives
+// ---------------------------------------------------------
+
+function db_page_init(frame_id, lba) {
+    sys_frame_write_i32(frame_id, 0, 728581); // Magic
+    sys_frame_write_i32(frame_id, 4, lba);    // LBA
+    sys_frame_write_i32(frame_id, 8, 0);      // NumSlots
+    sys_frame_write_i32(frame_id, 12, 4096);  // FreeSpaceOffset
+    return 0;
+}
+
+function db_slot_insert(frame_id, rid_high, rid_low, hash, val) {
+    let num_slots = sys_frame_read_i32(frame_id, 8);
+    let free_space = sys_frame_read_i32(frame_id, 12);
+    
+    // Tuple size is 16 bytes: [rid_high, rid_low, hash, val]
+    let new_free_space = (free_space - 16) | 0;
+    
+    // Write tuple at the new free space (grows backward)
+    sys_frame_write_i32(frame_id, new_free_space, rid_high);
+    sys_frame_write_i32(frame_id, (new_free_space + 4) | 0, rid_low);
+    sys_frame_write_i32(frame_id, (new_free_space + 8) | 0, hash);
+    sys_frame_write_i32(frame_id, (new_free_space + 12) | 0, val);
+    
+    // Write Slot Header: [PayloadOffset, PayloadSize]
+    // Slot Header offset = 16 + (num_slots * 8)
+    let slot_offset = (16 + (num_slots * 8)) | 0;
+    sys_frame_write_i32(frame_id, slot_offset, new_free_space);
+    sys_frame_write_i32(frame_id, (slot_offset + 4) | 0, 16);
+    
+    // Update Header
+    sys_frame_write_i32(frame_id, 8, (num_slots + 1) | 0);
+    sys_frame_write_i32(frame_id, 12, new_free_space);
+    
+    return 0;
+}
+
+function db_tuple_search(frame_id, search_rid_high, search_rid_low, search_hash) {
+    let num_slots = sys_frame_read_i32(frame_id, 8);
+    let i = 0;
+    
+    while (i < num_slots) {
+        let slot_offset = (16 + (i * 8)) | 0;
+        let payload_offset = sys_frame_read_i32(frame_id, slot_offset);
+        
+        let slot_rid_high = sys_frame_read_i32(frame_id, payload_offset);
+        let slot_rid_low = sys_frame_read_i32(frame_id, (payload_offset + 4) | 0);
+        
+        if (slot_rid_high === search_rid_high) {
+            if (slot_rid_low === search_rid_low) {
+                let slot_hash = sys_frame_read_i32(frame_id, (payload_offset + 8) | 0);
+                if (slot_hash === search_hash) {
+                    // Match found! Return the data payload
+                    let data_val = sys_frame_read_i32(frame_id, (payload_offset + 12) | 0);
+                    return data_val;
+                }
+            }
+        }
+        
+        i = (i + 1) | 0;
+    }
+    
+    return -1; // Not found
+}
+

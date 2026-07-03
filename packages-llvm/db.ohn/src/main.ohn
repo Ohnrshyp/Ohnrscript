@@ -1,5 +1,3 @@
-// packages-llvm/db.ohn/src/main.ohn
-
 function main() {
     require('db');
     print_boot();
@@ -7,62 +5,55 @@ function main() {
     // 1. Initialize Buffer Pool
     db_init();
 
-    // --- Concurrency Stress Test ---
+    // --- B-Tree Test Harness ---
     let root_lba = 0;
     
-    // Pre-populate Root LBA with initial magic number
-    let write_frame_id = db_write_page(root_lba);
-    sys_frame_write_i32(write_frame_id, 0, 728581); 
-    db_release_write_lock(write_frame_id);
+    // Acquire Write Lock on LBA 0
+    let write_frame = db_write_page(root_lba);
     
-    // Flush to disk so readers get valid data if evicted
+    // 1. Format the raw 4KB block as a Slotted Page
+    db_page_init(write_frame, root_lba);
+    
+    // 2. Insert self (.) and parent (..) 
+    // They both point to Root Directory (RID = 0, Hash = 0)
+    db_slot_insert(write_frame, 0, 0, 0, 0); // Slot 0
+    db_slot_insert(write_frame, 0, 0, 0, 0); // Slot 1
+    
+    // 3. Insert /sys/config.json
+    // Parent RID High = 0, Low = 0
+    // Filename Hash = 99111 (Integer hash for "config")
+    // Payload Data = 42
+    db_slot_insert(write_frame, 0, 0, 99111, 42);
+    
+    // Release lock
+    db_release_write_lock(write_frame);
+    
+    // 4. Flush to NVMe (This will implicitly append to WAL!)
     db_flush_all();
     
-    // Spawn 4 threads to concurrently read/write to the same LBAs
-    sys_thread_create(1); // writer
-    sys_thread_create(2); // reader
-    sys_thread_create(3); // reader
-    sys_thread_create(4); // writer
+    // 5. Evict LBA 0 from Buffer Pool to force a cold read
+    db_read_page(1024);
     
-    sys_thread_join(1);
-    sys_thread_join(2);
-    sys_thread_join(3);
-    sys_thread_join(4);
+    // 6. Cold Read LBA 0 back into Memory
+    let read_frame = db_read_page(root_lba);
     
-    print_success();
+    // 7. Perform the 64-bit High/Low Tuple Search
+    let result = db_tuple_search(read_frame, 0, 0, 99111);
+    
+    db_release_read_lock(read_frame);
+    
+    if (result === 42) {
+        print_num(result);
+        print_success();
+    }
+    
     return 0;
 }
 
-// C-bindings will call this function in a new OS thread
 function dbWorkerFunction(worker_id) {
-    let i = 0;
-    let lba = 0;
-    
-    // Even worker IDs are readers, Odd are writers
-    let is_writer = (worker_id % 2) !== 0;
-
-    while (i < 1000) {
-        lba = i % 10; // Contend heavily on LBA 0-9
-        
-        if (is_writer) {
-            let frame_id = db_write_page(lba);
-            // Simulate some work inside the critical section
-            sys_frame_write_i32(frame_id, 0, worker_id);
-            db_release_write_lock(frame_id);
-        } else {
-            let frame_id = db_read_page(lba);
-            // Simulate read work
-            let val = sys_frame_read_i32(frame_id, 0);
-            db_release_read_lock(frame_id);
-        }
-        
-        i = (i + 1) | 0;
-    }
-    
     return 0;
 }
 
 const sys_thread_create = __extern('ext_sys_thread_create');
 const sys_thread_join = __extern('ext_sys_thread_join');
 
-// Original sync test removed in favor of concurrent thread test

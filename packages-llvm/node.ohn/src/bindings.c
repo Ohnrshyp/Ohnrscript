@@ -253,16 +253,37 @@ int64_t sys_shared_free(int64_t ptr, int64_t size) {
 /* ============================================================
  * 7. STRING BYPASS (For missing string literal parser)
  * ============================================================ */
-void sys_fill_http_response(int32_t offset_idx) {
-    const char* resp = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, World!";
+void sys_fill_response(int32_t offset_idx, int32_t response_type) {
     uint8_t* p = (uint8_t*)read_buf + (offset_idx * 4);
-    memcpy(p, resp, 75);
+    
+    if (response_type == 2001) { // ROOT
+        const char* resp = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, World!";
+        memcpy(p, resp, 75);
+    } else if (response_type == 2002) { // USERS
+        const char* resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"users\":[\"db\"]}";
+        memcpy(p, resp, 87);
+    } else if (response_type == 404) {
+        const char* resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found";
+        memcpy(p, resp, 54);
+    } else if (response_type == 405) {
+        const char* resp = "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
+        memcpy(p, resp, 55);
+    } else {
+        const char* resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+        memcpy(p, resp, 58);
+    }
 }
 
 /* ============================================================
  * 8. MEMORY ACCESS (For HTTP parser)
  * ============================================================ */
-int64_t sys_mem_read_i8(int64_t ptr, int64_t offset) {
-    uint8_t* base = (uint8_t*)(uintptr_t)ptr;
-    return (int64_t)base[offset];
+int64_t sys_mem_read_i8(int64_t offset_idx, int64_t byte_offset) {
+    uint8_t* base = (uint8_t*)read_buf + (offset_idx * 4);
+    return (int64_t)base[byte_offset];
+}
+
+int64_t sys_mem_read_i32(int64_t offset_idx, int64_t byte_offset) {
+    uint8_t* base = (uint8_t*)read_buf + (offset_idx * 4);
+    int32_t* p = (int32_t*)(base + byte_offset);
+    return (int64_t)*p;
 }

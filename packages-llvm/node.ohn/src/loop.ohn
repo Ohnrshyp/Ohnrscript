@@ -37,7 +37,13 @@ let fd_table        = new Int32Array(MAX_CONN);
 let state_table     = new Int32Array(MAX_CONN);
 let bytes_read      = new Int32Array(MAX_CONN);
 let bytes_written   = new Int32Array(MAX_CONN);
-let last_active_ts  = new Int32Array(MAX_CONN);  // used by timeout Min-Heap
+let last_active_ts  = new Int32Array(MAX_CONN);
+
+// Parser State Tracking for Fragmented TCP
+let parse_state      = new Int32Array(MAX_CONN); // 0=Method, 1=Route, 2=Headers
+let parse_method     = new Int32Array(MAX_CONN);
+let current_hash     = new Int32Array(MAX_CONN);
+let bytes_processed  = new Int32Array(MAX_CONN);
 
 // Active connection count — used for graceful draining.
 let active_count    = 0;
@@ -101,20 +107,15 @@ function closeSlot(kq, slot) {
     state_table[slot] = STATE_IDLE;
     bytes_read[slot]  = 0;
     bytes_written[slot] = 0;
+    parse_state[slot] = 0;
+    parse_method[slot] = 0;
+    current_hash[slot] = 0;
+    bytes_processed[slot] = 0;
     active_count = (active_count - 1) | 0;
 }
 
-// ── HTTP Response Writer ──
-// Writes a minimal HTTP/1.1 200 OK response into the read_buf slot.
-// In a full implementation, the userland API writes here via res.write().
-// res.end() transitions state → STATE_WRITING and registers EPOLLOUT/EVFILT_WRITE.
-function writeResponse(slot) {
-    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
-    // Bypassing string literal parser limitation using C
-    ohn_fill_http_response(buf_offset);
-    bytes_written[slot] = 75;
-    state_table[slot]   = STATE_WRITING;
-}
+// ── HTTP Response Writer (Removed in favor of router.ohn) ──
+// Function intentionally omitted.
 
 // ── Accept new connections ──
 function acceptConnections(kq, listen_fd) {
@@ -144,6 +145,10 @@ function acceptConnections(kq, listen_fd) {
         state_table[slot] = STATE_READING;
         bytes_read[slot]  = 0;
         bytes_written[slot] = 0;
+        parse_state[slot] = 0;
+        parse_method[slot] = 0;
+        current_hash[slot] = 0;
+        bytes_processed[slot] = 0;
         active_count = (active_count + 1) | 0;
 
         // Register for read-readiness with kqueue/epoll.
@@ -165,18 +170,55 @@ function handleRead(kq, slot) {
 
     bytes_read[slot] = (bytes_read[slot] + n) | 0;
 
-    // Minimal HTTP parser: wait for \r\n\r\n end-of-headers sequence.
-    // A full implementation would call the llhttp extern here.
-    // For now: assume request is complete if we have read > 4 bytes.
-    if ((bytes_read[slot] | 0) >= 4) {
-        // Deregister EPOLLIN / EVFILT_READ to prevent re-reads (backpressure).
-        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+    let total_read = bytes_read[slot] | 0;
 
-        // Build response into slot buffer, transition to WRITING state.
-        writeResponse(slot);
+    // 1. Parse Method if we haven't yet and we have at least 5 bytes (e.g. "GET /")
+    if ((parse_state[slot] | 0) === 0 && total_read >= 5) {
+        let method = http_parse_method(buf_offset) | 0;
+        parse_method[slot] = method;
+        
+        // Find where the path starts. 'GET ' is 4 bytes.
+        let offset = 4;
+        if (method === 2) { // POST
+            offset = 5;
+        }
+        bytes_processed[slot] = offset;
+        parse_state[slot] = 1;
+    }
 
-        // Register EPOLLOUT / EVFILT_WRITE to flush the response.
-        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+    // 2. Parse Route Hash if we have a method and aren't done yet
+    if ((parse_state[slot] | 0) === 1) {
+        let current_offset = bytes_processed[slot] | 0;
+        
+        let result = http_parse_route_hash(buf_offset, current_offset, total_read) | 0;
+        if (result === 1) {
+            // Found space or '?', parsing complete
+            current_hash[slot] = parse_result[0] | 0;
+            bytes_processed[slot] = parse_result[1] | 0; // The end offset
+            parse_state[slot] = 2; // Moving to wait for header end
+        } else if (result === -1 && total_read > 2048) {
+            // Buffer overread safeguard
+            closeSlot(kq, slot);
+            return 0;
+        }
+    }
+
+    // 3. Wait for \r\n\r\n boundary
+    if ((parse_state[slot] | 0) === 2) {
+        let header_end = http_find_headers_end(buf_offset, total_read) | 0;
+        if (header_end > 0) {
+            // Deregister EPOLLIN / EVFILT_READ to prevent re-reads (backpressure).
+            ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+
+            // Execute Router Pipeline directly from slot state
+            let method = parse_method[slot] | 0;
+            let hash = current_hash[slot] | 0;
+            
+            router_handle(method, hash, slot);
+
+            // Register EPOLLOUT / EVFILT_WRITE to flush the response.
+            ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+        }
     }
 }
 

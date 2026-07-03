@@ -39,7 +39,7 @@ echo "────────────────────────�
 
 # The self-hosted compiler takes the combined source.
 echo "▶ Combining Ohnrscript sources..."
-cat "$SRC_DIR/http.ohn" "$SRC_DIR/mpsc.ohn" "$SRC_DIR/outbound.ohn" "$SRC_DIR/timeout.ohn" "$SRC_DIR/loop.ohn" "$SRC_DIR/server.ohn" > "$OUT_DIR/combined.ohn"
+cat "$SRC_DIR/http.ohn" "$SRC_DIR/router.ohn" "$SRC_DIR/mpsc.ohn" "$SRC_DIR/outbound.ohn" "$SRC_DIR/timeout.ohn" "$SRC_DIR/loop.ohn" "$SRC_DIR/server.ohn" > "$OUT_DIR/combined.ohn"
 
 echo "▶ Compiling combined.ohn → server.ll (via self-hosted compiler)..."
 node -e "

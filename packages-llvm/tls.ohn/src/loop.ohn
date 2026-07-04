@@ -1,0 +1,377 @@
+// loop.ohn — node.ohn Core Event Loop
+// Written in Ohnrscript. Compiles to LLVM IR via self-hosted compiler.
+//
+// Architecture:
+//   - Uses kqueue (macOS) or epoll (Linux) via bindings.c shims.
+//   - Maintains per-socket state in flat DOD arrays (no heap objects).
+//   - Implements O(1) connection timeout via Min-Heap (see timeout.ohn).
+//   - Implements SIGTERM graceful draining.
+//   - Implements incoming backpressure (EPOLLIN deregistration).
+
+// ── Constants ──
+// These are platform event filter/flag values passed as flat i64 integers
+// through bindings.c, so Ohnrscript never touches raw C structs.
+let EVFILT_READ  = -1;   // kqueue read filter
+let EVFILT_WRITE = -2;   // kqueue write filter
+let EV_ADD       = 1;
+let EV_DELETE    = 2;
+let EV_DISABLE   = 8;
+let EV_ENABLE    = 4;
+
+let EPOLLIN      = 1;    // epoll readable
+let EPOLLOUT     = 4;    // epoll writable
+let EPOLLET      = -2147483647 - 1; // edge-triggered (0x80000000 as i32)
+
+// ── DOD Socket State Arrays ──
+// Each active connection is tracked by its file descriptor as the index key.
+// All state is flat integers — no heap allocation ever.
+let MAX_CONN         = 4096;
+let STATE_IDLE          = 0;
+let STATE_READING       = 1;
+let STATE_WRITING       = 2;
+let STATE_DRAINING      = 3;   // SIGTERM draining phase
+let STATE_TLS_HANDSHAKE = 4;   // mbedTLS handshake in progress
+
+// Per-socket flat arrays (indexed by slot, not fd).
+// fd_table[slot] = fd, state_table[slot] = STATE_*, etc.
+let fd_table        = new Int32Array(MAX_CONN);
+let state_table     = new Int32Array(MAX_CONN);
+let bytes_read      = new Int32Array(MAX_CONN);
+let bytes_written   = new Int32Array(MAX_CONN);
+let last_active_ts  = new Int32Array(MAX_CONN);
+
+// Parser State Tracking for Fragmented TCP
+let parse_state      = new Int32Array(MAX_CONN); // 0=Method, 1=Route, 2=Headers
+let parse_method     = new Int32Array(MAX_CONN);
+let current_hash     = new Int32Array(MAX_CONN);
+let bytes_processed  = new Int32Array(MAX_CONN);
+
+// Active connection count — used for graceful draining.
+let active_count    = 0;
+
+// Drain mode — set to 1 when SIGTERM received.
+let draining_mode   = 0;
+
+// Read/write ring buffer (shared across all connections via slot indexing).
+// Each slot is 8KB (sufficient for HTTP headers + small bodies).
+let BUF_SLOT_SIZE   = 8192;
+let read_buf        = new Int32Array(MAX_CONN * BUF_SLOT_SIZE / 4);
+
+// Outbound High-Water Mark: 2MB per socket before backpressure engages.
+let OUTBOUND_HWM    = 2097152;
+
+// Event results buffer: kqueue/epoll writes [fd, filter/events, ...] pairs.
+let MAX_EVENTS      = 256;
+let event_results   = new Int32Array(MAX_EVENTS * 2);
+
+// ── Externs from bindings.c ──
+const ohn_kqueue_create = __extern('sys_kqueue_create');
+const ohn_kqueue_register = __extern('sys_kqueue_register');
+const ohn_kqueue_wait = __extern('sys_kqueue_wait');
+const ohn_socket_accept = __extern('sys_socket_accept');
+const ohn_socket_nonblock = __extern('sys_socket_nonblock');
+const ohn_socket_read = __extern('sys_socket_read');
+const ohn_socket_write = __extern('sys_socket_write');
+const ohn_socket_close = __extern('sys_socket_close');
+const ohn_fill_http_response = __extern('sys_fill_http_response');
+const ohn_time_sec = __extern('sys_time_sec');
+
+// ── Globals ──
+let current_sec = 0;
+
+// ── TLS Externs ──
+const ohn_tls_connect = __extern('sys_tls_connect');
+const ohn_tls_handshake = __extern('sys_tls_handshake');
+const ohn_tls_read = __extern('sys_tls_read');
+const ohn_tls_write = __extern('sys_tls_write');
+const ohn_tls_close = __extern('sys_tls_close');
+
+// ── Slot Management ──
+// Find the first idle slot. Returns -1 if full (server at capacity).
+function findFreeSlot() {
+    let i = 0;
+    while (i < MAX_CONN) {
+        if ((state_table[i] | 0) === STATE_IDLE) {
+            return i;
+        }
+        i = (i + 1) | 0;
+    }
+    return -1;
+}
+
+// Find the slot for a given fd. Returns -1 if not found.
+function findSlotByFd(fd) {
+    let i = 0;
+    while (i < MAX_CONN) {
+        if ((fd_table[i] | 0) === fd && (state_table[i] | 0) !== STATE_IDLE) {
+            return i;
+        }
+        i = (i + 1) | 0;
+    }
+    return -1;
+}
+
+// Release a slot and close the socket.
+function closeSlot(kq, slot) {
+    let fd = fd_table[slot] | 0;
+    ohn_tls_close(slot); // Free TLS context
+    ohn_socket_close(fd);
+    timeout_remove(slot);
+    fd_table[slot]    = 0;
+    state_table[slot] = STATE_IDLE;
+    bytes_read[slot]  = 0;
+    bytes_written[slot] = 0;
+    parse_state[slot] = 0;
+    parse_method[slot] = 0;
+    current_hash[slot] = 0;
+    bytes_processed[slot] = 0;
+    active_count = (active_count - 1) | 0;
+}
+
+// ── HTTP Response Writer (Removed in favor of router.ohn) ──
+// Function intentionally omitted.
+
+// ── Accept new connections ──
+function acceptConnections(kq, listen_fd) {
+    while (1) {
+        let client_fd = ohn_socket_accept(listen_fd) | 0;
+        if (client_fd < 0) {
+            // EAGAIN = no more pending connections on this tick.
+            return 0;
+        }
+
+        // If server is in draining mode, reject new connections.
+        if ((draining_mode | 0) === 1) {
+            ohn_socket_close(client_fd);
+            return 0;
+        }
+
+        ohn_socket_nonblock(client_fd);
+
+        let slot = findFreeSlot() | 0;
+        if (slot < 0) {
+            // At capacity — gracefully reject.
+            ohn_socket_close(client_fd);
+            continue;
+        }
+
+        fd_table[slot]    = client_fd;
+        state_table[slot] = STATE_TLS_HANDSHAKE;
+        bytes_read[slot]  = 0;
+        bytes_written[slot] = 0;
+        parse_state[slot] = 0;
+        parse_method[slot] = 0;
+        current_hash[slot] = 0;
+        bytes_processed[slot] = 0;
+        active_count = (active_count + 1) | 0;
+
+        // Initialize TLS connection context for this slot
+        ohn_tls_connect(slot, client_fd, 0);
+        
+        timeout_add(slot, (current_sec + 5) | 0); // 5 second Slowloris timeout
+        
+        // Register for read-readiness to kick off handshake
+        ohn_kqueue_register(kq, client_fd, EVFILT_READ, EV_ADD);
+    }
+}
+
+// ── TLS Handshake handler ──
+function handleHandshake(kq, slot) {
+    let ret = ohn_tls_handshake(slot) | 0;
+    let fd = fd_table[slot] | 0;
+    
+    if (ret === -1) {
+        // WANT_READ
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_ADD);
+    } else if (ret === -2) {
+        // WANT_WRITE
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+    } else if (ret === 0) {
+        // Handshake Complete
+        state_table[slot] = STATE_READING;
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_ADD);
+        
+        timeout_touch(slot, (current_sec + 30) | 0); // 30 second keep-alive
+    } else {
+        // Fatal error
+        closeSlot(kq, slot);
+    }
+}
+
+// ── Read handler ──
+function handleRead(kq, slot) {
+    if ((state_table[slot] | 0) === STATE_TLS_HANDSHAKE) {
+        handleHandshake(kq, slot);
+        return 0;
+    }
+
+    let fd        = fd_table[slot] | 0;
+    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
+    let n = ohn_tls_read(slot, buf_offset, BUF_SLOT_SIZE) | 0;
+
+    if (n === -1 || n === -2) {
+        // WANT_READ or WANT_WRITE (renegotiation)
+        return 0;
+    }
+
+    if (n <= 0) {
+        // Client disconnected or error — close slot.
+        closeSlot(kq, slot);
+        return 0;
+    }
+
+    timeout_touch(slot, (current_sec + 30) | 0); // Extend keep-alive on active read
+
+    bytes_read[slot] = (bytes_read[slot] + n) | 0;
+
+    let total_read = bytes_read[slot] | 0;
+
+    // 1. Parse Method if we haven't yet and we have at least 5 bytes (e.g. "GET /")
+    if ((parse_state[slot] | 0) === 0 && total_read >= 5) {
+        let method = http_parse_method(buf_offset) | 0;
+        parse_method[slot] = method;
+        
+        // Find where the path starts. 'GET ' is 4 bytes.
+        let offset = 4;
+        if (method === 2) { // POST
+            offset = 5;
+        }
+        bytes_processed[slot] = offset;
+        parse_state[slot] = 1;
+    }
+
+    // 2. Parse Route Hash if we have a method and aren't done yet
+    if ((parse_state[slot] | 0) === 1) {
+        let current_offset = bytes_processed[slot] | 0;
+        
+        let result = http_parse_route_hash(buf_offset, current_offset, total_read) | 0;
+        if (result === 1) {
+            // Found space or '?', parsing complete
+            current_hash[slot] = parse_result[0] | 0;
+            bytes_processed[slot] = parse_result[1] | 0; // The end offset
+            parse_state[slot] = 2; // Moving to wait for header end
+        } else if (result === -1 && total_read > 2048) {
+            // Buffer overread safeguard
+            closeSlot(kq, slot);
+            return 0;
+        }
+    }
+
+    // 3. Wait for \r\n\r\n boundary
+    if ((parse_state[slot] | 0) === 2) {
+        let header_end = http_find_headers_end(buf_offset, total_read) | 0;
+        if (header_end > 0) {
+            // Deregister EPOLLIN / EVFILT_READ to prevent re-reads (backpressure).
+            ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+
+            // Execute Router Pipeline directly from slot state
+            let method = parse_method[slot] | 0;
+            let hash = current_hash[slot] | 0;
+            
+            router_handle(method, hash, slot);
+
+            // Register EPOLLOUT / EVFILT_WRITE to flush the response.
+            ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+        }
+    }
+}
+
+// ── Write handler ──
+function handleWrite(kq, slot) {
+    if ((state_table[slot] | 0) === STATE_TLS_HANDSHAKE) {
+        handleHandshake(kq, slot);
+        return 0;
+    }
+
+    let fd         = fd_table[slot] | 0;
+    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
+    let to_write   = bytes_written[slot] | 0;
+
+    let n = ohn_tls_write(slot, buf_offset, to_write) | 0;
+
+    if (n === -1 || n === -2) {
+        // WANT_READ or WANT_WRITE (renegotiation)
+        return 0;
+    }
+
+    if (n < 0) {
+        // EAGAIN — kernel send buffer full. State machine stays in WRITING.
+        // kqueue/epoll will re-notify when writable again.
+        return 0;
+    }
+
+    timeout_touch(slot, (current_sec + 30) | 0); // Extend keep-alive on active write
+
+    // Track partial writes (EAGAIN state machine).
+    bytes_written[slot] = (bytes_written[slot] - n) | 0;
+
+    if ((bytes_written[slot] | 0) <= 0) {
+        // Response fully flushed — close connection (HTTP/1.0 style for now).
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
+        closeSlot(kq, slot);
+    }
+}
+
+// ── Main Event Loop ──
+function ohn_event_loop_run(listen_fd) {
+    let kq = ohn_kqueue_create() | 0;
+
+    // Register the listening socket for read events (incoming connections).
+    ohn_kqueue_register(kq, listen_fd, EVFILT_READ, EV_ADD);
+
+    let event_buf_ptr = 0; // Pointer to event_results array base.
+    // In Ohnrscript LLVM IR, typed array base pointers are i64 values.
+    // The self-hosted compiler emits inttoptr for array access.
+
+    let TIMEOUT_MS = 1000; // 1 second tick for timeout wheel processing.
+
+    while (1) {
+        let n = ohn_kqueue_wait(kq, event_buf_ptr, MAX_EVENTS, TIMEOUT_MS) | 0;
+
+        // Query monotonic system clock to avoid interval drift
+        current_sec = ohn_time_sec() | 0;
+        
+        // Process timeouts (outside event loop so it runs even if n == 0)
+        while (1) {
+            let expired_slot = timeout_poll(current_sec) | 0;
+            if (expired_slot < 0) {
+                break;
+            }
+            // Brutal eviction
+            closeSlot(kq, expired_slot);
+        }
+
+        // Process each ready event.
+        let i = 0;
+        while (i < n) {
+            let ev_fd     = (event_results[i * 2]     | 0);
+            let ev_filter = (event_results[i * 2 + 1] | 0);
+
+            if (ev_fd === listen_fd) {
+                // New connection(s) ready to accept.
+                acceptConnections(kq, listen_fd);
+            } else {
+                let slot = findSlotByFd(ev_fd) | 0;
+                if (slot >= 0) {
+                    if (ev_filter === EVFILT_READ) {
+                        handleRead(kq, slot);
+                    }
+                    if (ev_filter === EVFILT_WRITE) {
+                        handleWrite(kq, slot);
+                    }
+                }
+            }
+
+            i = (i + 1) | 0;
+        }
+
+        // Draining phase: if SIGTERM was received and all connections closed, exit.
+        if ((draining_mode | 0) === 1 && (active_count | 0) === 0) {
+            ohn_socket_close(listen_fd);
+            return 0;
+        }
+    }
+}

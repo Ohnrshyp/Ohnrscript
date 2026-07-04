@@ -105,6 +105,7 @@ uint32_t vgaClearScreen() {
 /* Zero parameters — banner is written from C, keyboard loop is self-contained. */
 
 extern int kernelMain(void);
+void* ohn_heap_base = (void*)0;
 
 /* ── Banner Helper ──────────────────────────────────────────────────────── */
 /* Write a C string to VGA at a given row, with a given color attribute.    */

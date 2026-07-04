@@ -6,7 +6,7 @@ declare void @ohn_free(ptr)
 
 @db_initialized = global i1 0
 @db_exports = global ptr null
-@sys_disk_init = global ptr null@sys_lba_read = global ptr null@sys_lba_write = global ptr null@sys_frame_write_byte = global ptr null@sys_frame_read_byte = global ptr null@sys_frame_write_i32 = global ptr null@sys_frame_read_i32 = global ptr null@sys_rwlock_init = global ptr null@sys_rwlock_rlock = global ptr null@sys_rwlock_wlock = global ptr null@sys_rwlock_unlock = global ptr null@print_boot = global ptr null@print_success = global ptr null@print_num = global ptr null@BLOCK_SIZE = global ptr null@NUM_FRAMES = global ptr null@pageTable = global ptr null@sys_thread_create = global ptr null@sys_thread_join = global ptr null
+@sys_disk_init = global ptr null@sys_lba_read = global ptr null@sys_lba_write = global ptr null@sys_frame_write_byte = global ptr null@sys_frame_read_byte = global ptr null@sys_frame_write_i32 = global ptr null@sys_frame_read_i32 = global ptr null@sys_rwlock_init = global ptr null@sys_rwlock_rlock = global ptr null@sys_rwlock_wlock = global ptr null@sys_rwlock_unlock = global ptr null@print_boot = global ptr null@print_success = global ptr null@print_num = global ptr null@BLOCK_SIZE = global ptr null@NUM_FRAMES = global ptr null@pageTable = global ptr null@wal_tail_lba = global ptr null@sys_thread_create = global ptr null@sys_thread_join = global ptr null
 define ptr @__get_module_exports_db() {
 entry:
   %init_flag = load i1, ptr @db_initialized
@@ -22,6 +22,8 @@ init_block:
   %t4 = mul i32 %t2, %t3
   %t5 = call ptr @ohn_alloc_f32(i32 %t4)
   store ptr %t5, ptr @pageTable
+  %t6 = add i32 0, 1000000
+  store i32 %t6, ptr @wal_tail_lba
   store ptr null, ptr @db_exports
   br label %return_block
 return_block:
@@ -68,9 +70,29 @@ body.0:
   %t26 = load i32, ptr %i
   %t27 = add i32 0, 1
   %t28 = add i32 %t26, %t27
-  store i32 %t28, ptr %i
+  %t29 = add i32 0, 0
+  %t30 = or i32 %t28, %t29
+  store i32 %t30, ptr %i
   br label %loop.0
 exit.0:
+  ret i32 0
+}
+
+define i32 @db_wal_append(i64 %frame_id) {
+entry:
+  %t0 = load i32, ptr @wal_tail_lba
+  %t1 = add i32 0, 1
+  %t2 = trunc i64 %frame_id to i32
+  %t3 = call i64 @ext_sys_lba_write(i32 %t0, i32 %t1, i32 %t2)
+  %t4 = trunc i64 %t3 to i32
+  %t5 = load i32, ptr @wal_tail_lba
+  %t6 = add i32 0, 1
+  %t7 = add i32 %t5, %t6
+  %t8 = add i32 0, 0
+  %t9 = or i32 %t7, %t8
+  store i32 %t9, ptr @wal_tail_lba
+  %t10 = add i32 0, 0
+  ret i32 %t10
   ret i32 0
 }
 
@@ -102,41 +124,41 @@ entry:
   br i1 %t16, label %then.0, label %merge.0
 then.0:
   %t17 = load i32, ptr %frame_id
-  %t18 = call i64 @ext_sys_rwlock_unlock(i32 %t17)
-  %t19 = trunc i64 %t18 to i32
-  %t20 = load i32, ptr %frame_id
-  ret i32 %t20
+  ret i32 %t17
   br label %merge.0
 merge.0:
+  %t18 = load i32, ptr %frame_id
+  %t19 = call i64 @ext_sys_rwlock_unlock(i32 %t18)
+  %t20 = trunc i64 %t19 to i32
   %t21 = load i32, ptr %frame_id
-  %t22 = call i64 @ext_sys_rwlock_unlock(i32 %t21)
+  %t22 = call i64 @ext_sys_rwlock_wlock(i32 %t21)
   %t23 = trunc i64 %t22 to i32
-  %t24 = load i32, ptr %frame_id
-  %t25 = call i64 @ext_sys_rwlock_wlock(i32 %t24)
-  %t26 = trunc i64 %t25 to i32
-  %t27 = load ptr, ptr @pageTable
-  %t28 = load i32, ptr %frame_id
-  %t29 = add i32 0, 2
-  %t30 = mul i32 %t28, %t29
-  %t31 = add i32 0, 1
-  %t32 = add i32 %t30, %t31
-  %t33 = getelementptr i32, ptr %t27, i32 %t32
-  %t34 = load i32, ptr %t33
-  store i32 %t34, ptr %is_dirty
-  %t35 = load i32, ptr %is_dirty
-  %t36 = add i32 0, 1
-  %t37 = icmp eq i32 %t35, %t36
-  %t38 = zext i1 %t37 to i32
-  %t39 = icmp ne i32 %t38, 0
-  br i1 %t39, label %then.1, label %merge.1
+  %t24 = load ptr, ptr @pageTable
+  %t25 = load i32, ptr %frame_id
+  %t26 = add i32 0, 2
+  %t27 = mul i32 %t25, %t26
+  %t28 = add i32 0, 1
+  %t29 = add i32 %t27, %t28
+  %t30 = getelementptr i32, ptr %t24, i32 %t29
+  %t31 = load i32, ptr %t30
+  store i32 %t31, ptr %is_dirty
+  %t32 = load i32, ptr %is_dirty
+  %t33 = add i32 0, 1
+  %t34 = icmp eq i32 %t32, %t33
+  %t35 = zext i1 %t34 to i32
+  %t36 = icmp ne i32 %t35, 0
+  br i1 %t36, label %then.1, label %merge.1
 then.1:
-  %t40 = load ptr, ptr @pageTable
-  %t41 = load i32, ptr %frame_id
-  %t42 = add i32 0, 2
-  %t43 = mul i32 %t41, %t42
-  %t44 = getelementptr i32, ptr %t40, i32 %t43
-  %t45 = load i32, ptr %t44
-  store i32 %t45, ptr %old_lba
+  %t37 = load ptr, ptr @pageTable
+  %t38 = load i32, ptr %frame_id
+  %t39 = add i32 0, 2
+  %t40 = mul i32 %t38, %t39
+  %t41 = getelementptr i32, ptr %t37, i32 %t40
+  %t42 = load i32, ptr %t41
+  store i32 %t42, ptr %old_lba
+  %t43 = load i32, ptr %frame_id
+  %t44 = zext i32 %t43 to i64
+  %t45 = call i32 @db_wal_append(i64 %t44)
   %t46 = load i32, ptr %old_lba
   %t47 = add i32 0, 1
   %t48 = load i32, ptr %frame_id
@@ -166,10 +188,7 @@ merge.1:
   %t69 = getelementptr i32, ptr %t63, i32 %t68
   store i32 %t62, ptr %t69
   %t70 = load i32, ptr %frame_id
-  %t71 = call i64 @ext_sys_rwlock_unlock(i32 %t70)
-  %t72 = trunc i64 %t71 to i32
-  %t73 = load i32, ptr %frame_id
-  ret i32 %t73
+  ret i32 %t70
   ret i32 0
 }
 
@@ -223,36 +242,61 @@ then.1:
   %t34 = getelementptr i32, ptr %t30, i32 %t33
   %t35 = load i32, ptr %t34
   store i32 %t35, ptr %old_lba
-  %t36 = load i32, ptr %old_lba
-  %t37 = add i32 0, 1
-  %t38 = load i32, ptr %frame_id
-  %t39 = call i64 @ext_sys_lba_write(i32 %t36, i32 %t37, i32 %t38)
-  %t40 = trunc i64 %t39 to i32
+  %t36 = load i32, ptr %frame_id
+  %t37 = zext i32 %t36 to i64
+  %t38 = call i32 @db_wal_append(i64 %t37)
+  %t39 = load i32, ptr %old_lba
+  %t40 = add i32 0, 1
+  %t41 = load i32, ptr %frame_id
+  %t42 = call i64 @ext_sys_lba_write(i32 %t39, i32 %t40, i32 %t41)
+  %t43 = trunc i64 %t42 to i32
   br label %merge.1
 merge.1:
-  %t41 = trunc i64 %lba to i32
-  %t42 = load ptr, ptr @pageTable
-  %t43 = load i32, ptr %frame_id
-  %t44 = add i32 0, 2
-  %t45 = mul i32 %t43, %t44
-  %t46 = getelementptr i32, ptr %t42, i32 %t45
-  store i32 %t41, ptr %t46
+  %t44 = trunc i64 %lba to i32
+  %t45 = add i32 0, 1
+  %t46 = load i32, ptr %frame_id
+  %t47 = call i64 @ext_sys_lba_read(i32 %t44, i32 %t45, i32 %t46)
+  %t48 = trunc i64 %t47 to i32
+  %t49 = trunc i64 %lba to i32
+  %t50 = load ptr, ptr @pageTable
+  %t51 = load i32, ptr %frame_id
+  %t52 = add i32 0, 2
+  %t53 = mul i32 %t51, %t52
+  %t54 = getelementptr i32, ptr %t50, i32 %t53
+  store i32 %t49, ptr %t54
   br label %merge.0
 merge.0:
-  %t47 = add i32 0, 1
-  %t48 = load ptr, ptr @pageTable
-  %t49 = load i32, ptr %frame_id
-  %t50 = add i32 0, 2
-  %t51 = mul i32 %t49, %t50
-  %t52 = add i32 0, 1
-  %t53 = add i32 %t51, %t52
-  %t54 = getelementptr i32, ptr %t48, i32 %t53
-  store i32 %t47, ptr %t54
-  %t55 = load i32, ptr %frame_id
-  %t56 = call i64 @ext_sys_rwlock_unlock(i32 %t55)
-  %t57 = trunc i64 %t56 to i32
-  %t58 = load i32, ptr %frame_id
-  ret i32 %t58
+  %t55 = add i32 0, 1
+  %t56 = load ptr, ptr @pageTable
+  %t57 = load i32, ptr %frame_id
+  %t58 = add i32 0, 2
+  %t59 = mul i32 %t57, %t58
+  %t60 = add i32 0, 1
+  %t61 = add i32 %t59, %t60
+  %t62 = getelementptr i32, ptr %t56, i32 %t61
+  store i32 %t55, ptr %t62
+  %t63 = load i32, ptr %frame_id
+  ret i32 %t63
+  ret i32 0
+}
+
+define i32 @db_release_read_lock(i64 %frame_id) {
+entry:
+  %t0 = trunc i64 %frame_id to i32
+  %t1 = call i64 @ext_sys_rwlock_unlock(i32 %t0)
+  %t2 = trunc i64 %t1 to i32
+  %t3 = add i32 0, 0
+  ret i32 %t3
+  ret i32 0
+}
+
+define i32 @db_release_write_lock(i64 %frame_id) {
+entry:
+  %t0 = trunc i64 %frame_id to i32
+  %t1 = call i64 @ext_sys_rwlock_unlock(i32 %t0)
+  %t2 = trunc i64 %t1 to i32
+  %t3 = add i32 0, 0
+  ret i32 %t3
   ret i32 0
 }
 
@@ -298,38 +342,281 @@ then.1:
   %t26 = getelementptr i32, ptr %t22, i32 %t25
   %t27 = load i32, ptr %t26
   store i32 %t27, ptr %lba
-  %t28 = load i32, ptr %lba
-  %t29 = add i32 0, 1
-  %t30 = load i32, ptr %i
-  %t31 = call i64 @ext_sys_lba_write(i32 %t28, i32 %t29, i32 %t30)
-  %t32 = trunc i64 %t31 to i32
-  %t33 = add i32 0, 0
-  %t34 = load ptr, ptr @pageTable
-  %t35 = load i32, ptr %i
-  %t36 = add i32 0, 2
-  %t37 = mul i32 %t35, %t36
-  %t38 = add i32 0, 1
-  %t39 = add i32 %t37, %t38
-  %t40 = getelementptr i32, ptr %t34, i32 %t39
-  store i32 %t33, ptr %t40
+  %t28 = load i32, ptr %i
+  %t29 = zext i32 %t28 to i64
+  %t30 = call i32 @db_wal_append(i64 %t29)
+  %t31 = load i32, ptr %lba
+  %t32 = add i32 0, 1
+  %t33 = load i32, ptr %i
+  %t34 = call i64 @ext_sys_lba_write(i32 %t31, i32 %t32, i32 %t33)
+  %t35 = trunc i64 %t34 to i32
+  %t36 = add i32 0, 0
+  %t37 = load ptr, ptr @pageTable
+  %t38 = load i32, ptr %i
+  %t39 = add i32 0, 2
+  %t40 = mul i32 %t38, %t39
+  %t41 = add i32 0, 1
+  %t42 = add i32 %t40, %t41
+  %t43 = getelementptr i32, ptr %t37, i32 %t42
+  store i32 %t36, ptr %t43
   br label %merge.1
 merge.1:
-  %t41 = load i32, ptr %i
-  %t42 = call i64 @ext_sys_rwlock_unlock(i32 %t41)
-  %t43 = trunc i64 %t42 to i32
   %t44 = load i32, ptr %i
-  %t45 = add i32 0, 1
-  %t46 = add i32 %t44, %t45
-  store i32 %t46, ptr %i
+  %t45 = call i64 @ext_sys_rwlock_unlock(i32 %t44)
+  %t46 = trunc i64 %t45 to i32
+  %t47 = load i32, ptr %i
+  %t48 = add i32 0, 1
+  %t49 = add i32 %t47, %t48
+  %t50 = add i32 0, 0
+  %t51 = or i32 %t49, %t50
+  store i32 %t51, ptr %i
   br label %loop.0
 exit.0:
+  ret i32 0
+}
+
+define i32 @db_page_init(i64 %frame_id, i64 %lba) {
+entry:
+  %t0 = trunc i64 %frame_id to i32
+  %t1 = add i32 0, 0
+  %t2 = add i32 0, 728581
+  %t3 = call i64 @ext_sys_frame_write_i32(i32 %t0, i32 %t1, i32 %t2)
+  %t4 = trunc i64 %t3 to i32
+  %t5 = trunc i64 %frame_id to i32
+  %t6 = add i32 0, 4
+  %t7 = trunc i64 %lba to i32
+  %t8 = call i64 @ext_sys_frame_write_i32(i32 %t5, i32 %t6, i32 %t7)
+  %t9 = trunc i64 %t8 to i32
+  %t10 = trunc i64 %frame_id to i32
+  %t11 = add i32 0, 8
+  %t12 = add i32 0, 0
+  %t13 = call i64 @ext_sys_frame_write_i32(i32 %t10, i32 %t11, i32 %t12)
+  %t14 = trunc i64 %t13 to i32
+  %t15 = trunc i64 %frame_id to i32
+  %t16 = add i32 0, 12
+  %t17 = add i32 0, 4096
+  %t18 = call i64 @ext_sys_frame_write_i32(i32 %t15, i32 %t16, i32 %t17)
+  %t19 = trunc i64 %t18 to i32
+  %t20 = add i32 0, 0
+  ret i32 %t20
+  ret i32 0
+}
+
+define i32 @db_slot_insert(i64 %frame_id, i64 %rid_high, i64 %rid_low, i64 %hash, i64 %val) {
+entry:
+  %num_slots = alloca i32
+  %free_space = alloca i32
+  %new_free_space = alloca i32
+  %slot_offset = alloca i32
+  %t0 = trunc i64 %frame_id to i32
+  %t1 = add i32 0, 8
+  %t2 = call i64 @ext_sys_frame_read_i32(i32 %t0, i32 %t1)
+  %t3 = trunc i64 %t2 to i32
+  store i32 %t3, ptr %num_slots
+  %t4 = trunc i64 %frame_id to i32
+  %t5 = add i32 0, 12
+  %t6 = call i64 @ext_sys_frame_read_i32(i32 %t4, i32 %t5)
+  %t7 = trunc i64 %t6 to i32
+  store i32 %t7, ptr %free_space
+  %t8 = load i32, ptr %free_space
+  %t9 = add i32 0, 16
+  %t10 = sub i32 %t8, %t9
+  %t11 = add i32 0, 0
+  %t12 = or i32 %t10, %t11
+  store i32 %t12, ptr %new_free_space
+  %t13 = trunc i64 %frame_id to i32
+  %t14 = load i32, ptr %new_free_space
+  %t15 = trunc i64 %rid_high to i32
+  %t16 = call i64 @ext_sys_frame_write_i32(i32 %t13, i32 %t14, i32 %t15)
+  %t17 = trunc i64 %t16 to i32
+  %t18 = trunc i64 %frame_id to i32
+  %t19 = load i32, ptr %new_free_space
+  %t20 = add i32 0, 4
+  %t21 = add i32 %t19, %t20
+  %t22 = add i32 0, 0
+  %t23 = or i32 %t21, %t22
+  %t24 = trunc i64 %rid_low to i32
+  %t25 = call i64 @ext_sys_frame_write_i32(i32 %t18, i32 %t23, i32 %t24)
+  %t26 = trunc i64 %t25 to i32
+  %t27 = trunc i64 %frame_id to i32
+  %t28 = load i32, ptr %new_free_space
+  %t29 = add i32 0, 8
+  %t30 = add i32 %t28, %t29
+  %t31 = add i32 0, 0
+  %t32 = or i32 %t30, %t31
+  %t33 = trunc i64 %hash to i32
+  %t34 = call i64 @ext_sys_frame_write_i32(i32 %t27, i32 %t32, i32 %t33)
+  %t35 = trunc i64 %t34 to i32
+  %t36 = trunc i64 %frame_id to i32
+  %t37 = load i32, ptr %new_free_space
+  %t38 = add i32 0, 12
+  %t39 = add i32 %t37, %t38
+  %t40 = add i32 0, 0
+  %t41 = or i32 %t39, %t40
+  %t42 = trunc i64 %val to i32
+  %t43 = call i64 @ext_sys_frame_write_i32(i32 %t36, i32 %t41, i32 %t42)
+  %t44 = trunc i64 %t43 to i32
+  %t45 = add i32 0, 16
+  %t46 = load i32, ptr %num_slots
+  %t47 = add i32 0, 8
+  %t48 = mul i32 %t46, %t47
+  %t49 = add i32 %t45, %t48
+  %t50 = add i32 0, 0
+  %t51 = or i32 %t49, %t50
+  store i32 %t51, ptr %slot_offset
+  %t52 = trunc i64 %frame_id to i32
+  %t53 = load i32, ptr %slot_offset
+  %t54 = load i32, ptr %new_free_space
+  %t55 = call i64 @ext_sys_frame_write_i32(i32 %t52, i32 %t53, i32 %t54)
+  %t56 = trunc i64 %t55 to i32
+  %t57 = trunc i64 %frame_id to i32
+  %t58 = load i32, ptr %slot_offset
+  %t59 = add i32 0, 4
+  %t60 = add i32 %t58, %t59
+  %t61 = add i32 0, 0
+  %t62 = or i32 %t60, %t61
+  %t63 = add i32 0, 16
+  %t64 = call i64 @ext_sys_frame_write_i32(i32 %t57, i32 %t62, i32 %t63)
+  %t65 = trunc i64 %t64 to i32
+  %t66 = trunc i64 %frame_id to i32
+  %t67 = add i32 0, 8
+  %t68 = load i32, ptr %num_slots
+  %t69 = add i32 0, 1
+  %t70 = add i32 %t68, %t69
+  %t71 = add i32 0, 0
+  %t72 = or i32 %t70, %t71
+  %t73 = call i64 @ext_sys_frame_write_i32(i32 %t66, i32 %t67, i32 %t72)
+  %t74 = trunc i64 %t73 to i32
+  %t75 = trunc i64 %frame_id to i32
+  %t76 = add i32 0, 12
+  %t77 = load i32, ptr %new_free_space
+  %t78 = call i64 @ext_sys_frame_write_i32(i32 %t75, i32 %t76, i32 %t77)
+  %t79 = trunc i64 %t78 to i32
+  %t80 = add i32 0, 0
+  ret i32 %t80
+  ret i32 0
+}
+
+define i32 @db_tuple_search(i64 %frame_id, i64 %search_rid_high, i64 %search_rid_low, i64 %search_hash) {
+entry:
+  %num_slots = alloca i32
+  %i = alloca i32
+  %slot_offset = alloca i32
+  %payload_offset = alloca i32
+  %slot_rid_high = alloca i32
+  %slot_rid_low = alloca i32
+  %slot_hash = alloca i32
+  %data_val = alloca i32
+  %t0 = trunc i64 %frame_id to i32
+  %t1 = add i32 0, 8
+  %t2 = call i64 @ext_sys_frame_read_i32(i32 %t0, i32 %t1)
+  %t3 = trunc i64 %t2 to i32
+  store i32 %t3, ptr %num_slots
+  %t4 = add i32 0, 0
+  store i32 %t4, ptr %i
+  br label %loop.0
+loop.0:
+  %t5 = load i32, ptr %i
+  %t6 = load i32, ptr %num_slots
+  %t7 = icmp slt i32 %t5, %t6
+  %t8 = zext i1 %t7 to i32
+  %t9 = icmp ne i32 %t8, 0
+  br i1 %t9, label %body.0, label %exit.0
+body.0:
+  %t10 = add i32 0, 16
+  %t11 = load i32, ptr %i
+  %t12 = add i32 0, 8
+  %t13 = mul i32 %t11, %t12
+  %t14 = add i32 %t10, %t13
+  %t15 = add i32 0, 0
+  %t16 = or i32 %t14, %t15
+  store i32 %t16, ptr %slot_offset
+  %t17 = trunc i64 %frame_id to i32
+  %t18 = load i32, ptr %slot_offset
+  %t19 = call i64 @ext_sys_frame_read_i32(i32 %t17, i32 %t18)
+  %t20 = trunc i64 %t19 to i32
+  store i32 %t20, ptr %payload_offset
+  %t21 = trunc i64 %frame_id to i32
+  %t22 = load i32, ptr %payload_offset
+  %t23 = call i64 @ext_sys_frame_read_i32(i32 %t21, i32 %t22)
+  %t24 = trunc i64 %t23 to i32
+  store i32 %t24, ptr %slot_rid_high
+  %t25 = trunc i64 %frame_id to i32
+  %t26 = load i32, ptr %payload_offset
+  %t27 = add i32 0, 4
+  %t28 = add i32 %t26, %t27
+  %t29 = add i32 0, 0
+  %t30 = or i32 %t28, %t29
+  %t31 = call i64 @ext_sys_frame_read_i32(i32 %t25, i32 %t30)
+  %t32 = trunc i64 %t31 to i32
+  store i32 %t32, ptr %slot_rid_low
+  %t33 = load i32, ptr %slot_rid_high
+  %t34 = trunc i64 %search_rid_high to i32
+  %t35 = icmp eq i32 %t33, %t34
+  %t36 = zext i1 %t35 to i32
+  %t37 = icmp ne i32 %t36, 0
+  br i1 %t37, label %then.1, label %merge.1
+then.1:
+  %t38 = load i32, ptr %slot_rid_low
+  %t39 = trunc i64 %search_rid_low to i32
+  %t40 = icmp eq i32 %t38, %t39
+  %t41 = zext i1 %t40 to i32
+  %t42 = icmp ne i32 %t41, 0
+  br i1 %t42, label %then.2, label %merge.2
+then.2:
+  %t43 = trunc i64 %frame_id to i32
+  %t44 = load i32, ptr %payload_offset
+  %t45 = add i32 0, 8
+  %t46 = add i32 %t44, %t45
+  %t47 = add i32 0, 0
+  %t48 = or i32 %t46, %t47
+  %t49 = call i64 @ext_sys_frame_read_i32(i32 %t43, i32 %t48)
+  %t50 = trunc i64 %t49 to i32
+  store i32 %t50, ptr %slot_hash
+  %t51 = load i32, ptr %slot_hash
+  %t52 = trunc i64 %search_hash to i32
+  %t53 = icmp eq i32 %t51, %t52
+  %t54 = zext i1 %t53 to i32
+  %t55 = icmp ne i32 %t54, 0
+  br i1 %t55, label %then.3, label %merge.3
+then.3:
+  %t56 = trunc i64 %frame_id to i32
+  %t57 = load i32, ptr %payload_offset
+  %t58 = add i32 0, 12
+  %t59 = add i32 %t57, %t58
+  %t60 = add i32 0, 0
+  %t61 = or i32 %t59, %t60
+  %t62 = call i64 @ext_sys_frame_read_i32(i32 %t56, i32 %t61)
+  %t63 = trunc i64 %t62 to i32
+  store i32 %t63, ptr %data_val
+  %t64 = load i32, ptr %data_val
+  ret i32 %t64
+  br label %merge.3
+merge.3:
+  br label %merge.2
+merge.2:
+  br label %merge.1
+merge.1:
+  %t65 = load i32, ptr %i
+  %t66 = add i32 0, 1
+  %t67 = add i32 %t65, %t66
+  %t68 = add i32 0, 0
+  %t69 = or i32 %t67, %t68
+  store i32 %t69, ptr %i
+  br label %loop.0
+exit.0:
+  %t70 = add i32 0, 1
+  %t71 = sub i32 0, %t70
+  ret i32 %t71
   ret i32 0
 }
 
 define i32 @main() {
 entry:
   %root_lba = alloca i32
-  %write_frame_id = alloca i32
+  %write_frame = alloca i32
+  %read_frame = alloca i32
+  %result = alloca i32
   %t0 = call ptr @__get_module_exports_db()
   %t1 = call i64 @ext_print_boot()
   %t2 = trunc i64 %t1 to i32
@@ -339,117 +626,92 @@ entry:
   %t5 = load i32, ptr %root_lba
   %t6 = zext i32 %t5 to i64
   %t7 = call i32 @db_write_page(i64 %t6)
-  store i32 %t7, ptr %write_frame_id
-  %t8 = load i32, ptr %write_frame_id
-  %t9 = add i32 0, 0
-  %t10 = add i32 0, 728581
-  %t11 = call i64 @ext_sys_frame_write_i32(i32 %t8, i32 %t9, i32 %t10)
-  %t12 = trunc i64 %t11 to i32
-  ; UNSUPPORTED node type: 0x5 (call expression)
-  %t13 = add i32 0, 0
-  %t14 = call i32 @db_flush_all()
-  %t15 = add i32 0, 1
-  %t16 = call i64 @ext_sys_thread_create(i32 %t15)
-  %t17 = trunc i64 %t16 to i32
-  %t18 = add i32 0, 2
-  %t19 = call i64 @ext_sys_thread_create(i32 %t18)
-  %t20 = trunc i64 %t19 to i32
-  %t21 = add i32 0, 3
-  %t22 = call i64 @ext_sys_thread_create(i32 %t21)
-  %t23 = trunc i64 %t22 to i32
-  %t24 = add i32 0, 4
-  %t25 = call i64 @ext_sys_thread_create(i32 %t24)
-  %t26 = trunc i64 %t25 to i32
-  %t27 = add i32 0, 1
-  %t28 = call i64 @ext_sys_thread_join(i32 %t27)
-  %t29 = trunc i64 %t28 to i32
-  %t30 = add i32 0, 2
-  %t31 = call i64 @ext_sys_thread_join(i32 %t30)
-  %t32 = trunc i64 %t31 to i32
-  %t33 = add i32 0, 3
-  %t34 = call i64 @ext_sys_thread_join(i32 %t33)
-  %t35 = trunc i64 %t34 to i32
-  %t36 = add i32 0, 4
-  %t37 = call i64 @ext_sys_thread_join(i32 %t36)
-  %t38 = trunc i64 %t37 to i32
-  %t39 = call i64 @ext_print_success()
-  %t40 = trunc i64 %t39 to i32
-  %t41 = add i32 0, 0
-  ret i32 %t41
+  store i32 %t7, ptr %write_frame
+  %t8 = load i32, ptr %write_frame
+  %t9 = zext i32 %t8 to i64
+  %t10 = load i32, ptr %root_lba
+  %t11 = zext i32 %t10 to i64
+  %t12 = call i32 @db_page_init(i64 %t9, i64 %t11)
+  %t13 = load i32, ptr %write_frame
+  %t14 = zext i32 %t13 to i64
+  %t15 = add i32 0, 0
+  %t16 = zext i32 %t15 to i64
+  %t17 = add i32 0, 0
+  %t18 = zext i32 %t17 to i64
+  %t19 = add i32 0, 0
+  %t20 = zext i32 %t19 to i64
+  %t21 = add i32 0, 0
+  %t22 = zext i32 %t21 to i64
+  %t23 = call i32 @db_slot_insert(i64 %t14, i64 %t16, i64 %t18, i64 %t20, i64 %t22)
+  %t24 = load i32, ptr %write_frame
+  %t25 = zext i32 %t24 to i64
+  %t26 = add i32 0, 0
+  %t27 = zext i32 %t26 to i64
+  %t28 = add i32 0, 0
+  %t29 = zext i32 %t28 to i64
+  %t30 = add i32 0, 0
+  %t31 = zext i32 %t30 to i64
+  %t32 = add i32 0, 0
+  %t33 = zext i32 %t32 to i64
+  %t34 = call i32 @db_slot_insert(i64 %t25, i64 %t27, i64 %t29, i64 %t31, i64 %t33)
+  %t35 = load i32, ptr %write_frame
+  %t36 = zext i32 %t35 to i64
+  %t37 = add i32 0, 0
+  %t38 = zext i32 %t37 to i64
+  %t39 = add i32 0, 0
+  %t40 = zext i32 %t39 to i64
+  %t41 = add i32 0, 99111
+  %t42 = zext i32 %t41 to i64
+  %t43 = add i32 0, 42
+  %t44 = zext i32 %t43 to i64
+  %t45 = call i32 @db_slot_insert(i64 %t36, i64 %t38, i64 %t40, i64 %t42, i64 %t44)
+  %t46 = load i32, ptr %write_frame
+  %t47 = zext i32 %t46 to i64
+  %t48 = call i32 @db_release_write_lock(i64 %t47)
+  %t49 = call i32 @db_flush_all()
+  %t50 = add i32 0, 1024
+  %t51 = zext i32 %t50 to i64
+  %t52 = call i32 @db_read_page(i64 %t51)
+  %t53 = load i32, ptr %root_lba
+  %t54 = zext i32 %t53 to i64
+  %t55 = call i32 @db_read_page(i64 %t54)
+  store i32 %t55, ptr %read_frame
+  %t56 = load i32, ptr %read_frame
+  %t57 = zext i32 %t56 to i64
+  %t58 = add i32 0, 0
+  %t59 = zext i32 %t58 to i64
+  %t60 = add i32 0, 0
+  %t61 = zext i32 %t60 to i64
+  %t62 = add i32 0, 99111
+  %t63 = zext i32 %t62 to i64
+  %t64 = call i32 @db_tuple_search(i64 %t57, i64 %t59, i64 %t61, i64 %t63)
+  store i32 %t64, ptr %result
+  %t65 = load i32, ptr %read_frame
+  %t66 = zext i32 %t65 to i64
+  %t67 = call i32 @db_release_read_lock(i64 %t66)
+  %t68 = load i32, ptr %result
+  %t69 = add i32 0, 42
+  %t70 = icmp eq i32 %t68, %t69
+  %t71 = zext i1 %t70 to i32
+  %t72 = icmp ne i32 %t71, 0
+  br i1 %t72, label %then.0, label %merge.0
+then.0:
+  %t73 = load i32, ptr %result
+  %t74 = call i64 @ext_print_num(i32 %t73)
+  %t75 = trunc i64 %t74 to i32
+  %t76 = call i64 @ext_print_success()
+  %t77 = trunc i64 %t76 to i32
+  br label %merge.0
+merge.0:
+  %t78 = add i32 0, 0
+  ret i32 %t78
   ret i32 0
 }
 
 define i32 @dbWorkerFunction(i64 %worker_id) {
 entry:
-  %i = alloca i32
-  %lba = alloca i32
-  %is_writer = alloca i32
-  %frame_id = alloca i32
-  %val = alloca i32
   %t0 = add i32 0, 0
-  store i32 %t0, ptr %i
-  %t1 = add i32 0, 0
-  store i32 %t1, ptr %lba
-  %t2 = trunc i64 %worker_id to i32
-  %t3 = add i32 0, 2
-  %t4 = srem i32 %t2, %t3
-  %t5 = add i32 0, 0
-  %t6 = icmp ne i32 %t4, %t5
-  %t7 = zext i1 %t6 to i32
-  store i32 %t7, ptr %is_writer
-  br label %loop.0
-loop.0:
-  %t8 = load i32, ptr %i
-  %t9 = add i32 0, 1000
-  %t10 = icmp slt i32 %t8, %t9
-  %t11 = zext i1 %t10 to i32
-  %t12 = icmp ne i32 %t11, 0
-  br i1 %t12, label %body.0, label %exit.0
-body.0:
-  %t13 = load i32, ptr %i
-  %t14 = add i32 0, 10
-  %t15 = srem i32 %t13, %t14
-  store i32 %t15, ptr %lba
-  %t16 = load i32, ptr %is_writer
-  %t17 = icmp ne i32 %t16, 0
-  br i1 %t17, label %then.1, label %else.1
-then.1:
-  %t18 = load i32, ptr %lba
-  %t19 = zext i32 %t18 to i64
-  %t20 = call i32 @db_write_page(i64 %t19)
-  store i32 %t20, ptr %frame_id
-  %t21 = load i32, ptr %frame_id
-  %t22 = add i32 0, 0
-  %t23 = trunc i64 %worker_id to i32
-  %t24 = call i64 @ext_sys_frame_write_i32(i32 %t21, i32 %t22, i32 %t23)
-  %t25 = trunc i64 %t24 to i32
-  ; UNSUPPORTED node type: 0x5 (call expression)
-  %t26 = add i32 0, 0
-  br label %merge.1
-else.1:
-  %t27 = load i32, ptr %lba
-  %t28 = zext i32 %t27 to i64
-  %t29 = call i32 @db_read_page(i64 %t28)
-  store i32 %t29, ptr %frame_id
-  %t30 = load i32, ptr %frame_id
-  %t31 = add i32 0, 0
-  %t32 = call i64 @ext_sys_frame_read_i32(i32 %t30, i32 %t31)
-  %t33 = trunc i64 %t32 to i32
-  store i32 %t33, ptr %val
-  ; UNSUPPORTED node type: 0x5 (call expression)
-  %t34 = add i32 0, 0
-  br label %merge.1
-merge.1:
-  %t35 = load i32, ptr %i
-  %t36 = add i32 0, 1
-  %t37 = add i32 %t35, %t36
-  %t38 = add i32 0, 0
-  %t39 = or i32 %t37, %t38
-  store i32 %t39, ptr %i
-  br label %loop.0
-exit.0:
-  %t40 = add i32 0, 0
-  ret i32 %t40
+  ret i32 %t0
   ret i32 0
 }
 

@@ -1,0 +1,45 @@
+// router.ohn — Ohnrscript Flat Router
+// 
+// Acts as a branch-optimized jump table utilizing direct switch/case logic
+// on pre-computed integer hashes.
+
+// ── DJB2 Route Hashes ──
+// Hash('/') -> 177620 (Fixed typo)
+let HASH_ROOT = 177620;
+// Hash('/users') -> 6951371504038 (64-bit exact value)
+let HASH_USERS = 6951371504038;
+
+const ohn_fill_response = __extern('sys_fill_response');
+
+function router_handle(method, route_hash, slot) {
+    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
+    
+    // We only support GET (1) for now
+    if (method !== 1) {
+        // 405 Method Not Allowed
+        ohn_fill_response(buf_offset, 405);
+        bytes_written[slot] = 68;
+        state_table[slot] = STATE_WRITING;
+        return 0;
+    }
+
+    if (route_hash === HASH_ROOT) {
+        ohn_fill_response(buf_offset, 2001); 
+        bytes_written[slot] = 75;
+        state_table[slot] = STATE_WRITING;
+        return 0;
+    }
+    
+    if (route_hash === HASH_USERS) {
+        ohn_fill_response(buf_offset, 2002); 
+        bytes_written[slot] = 95; 
+        state_table[slot] = STATE_WRITING;
+        return 0;
+    }
+
+    // 404 Not Found
+    ohn_fill_response(buf_offset, 404);
+    bytes_written[slot] = 62;
+    state_table[slot] = STATE_WRITING;
+    return 0;
+}

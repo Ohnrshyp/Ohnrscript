@@ -1,0 +1,156 @@
+'use strict';
+
+// ---------------------------------------------------------
+// Bit-Packed Fixed-Precision Engine
+// ---------------------------------------------------------
+function pack(value, scale) {
+    return ((value & 0x3FFFFFF) << 6) | (scale & 0x3F);
+}
+
+function multiply(a, b) {
+    let v1 = a >> 6;
+    let s1 = a & 0x3F;
+    
+    let v2 = b >> 6;
+    let s2 = b & 0x3F;
+    
+    let finalValue = v1 * v2;
+    let finalScale = s1 + s2;
+    
+    while (finalValue > 33554431 || finalValue < -33554431) {
+        finalValue = finalValue >> 1;
+        finalScale = finalScale - 1;
+    }
+    
+    return ((finalValue & 0x3FFFFFF) << 6) | (finalScale & 0x3F);
+}
+
+// ---------------------------------------------------------
+// FFI Declarations
+// ---------------------------------------------------------
+const _sys_metal_init = __extern('sys_metal_init');
+const _sys_metal_run = __extern('sys_metal_run');
+const _sys_metal_create_static_buffer = __extern('sys_metal_create_static_buffer');
+const _sys_metal_create_dynamic_buffer = __extern('sys_metal_create_dynamic_buffer');
+const _sys_metal_update_dynamic_buffer = __extern('sys_metal_update_dynamic_buffer');
+const _sys_metal_draw_instanced = __extern('sys_metal_draw_instanced');
+
+const _sys_math_sin = __extern('sys_math_sin');
+const _sys_math_cos = __extern('sys_math_cos');
+
+// ---------------------------------------------------------
+// Global State
+// ---------------------------------------------------------
+let cubeHandle = 0;
+let matrixHandle = 0;
+let matrices = new Float32Array(16);
+let rotation = 0;
+
+// ---------------------------------------------------------
+// Initialization
+// ---------------------------------------------------------
+export function ohn_init() {
+    _sys_metal_init();
+
+    let vertices = new Float32Array(252);
+    
+    let n05 = pack(-1, 1); // -0.5
+    let p05 = pack(1, 1);  // 0.5
+    let p10 = pack(1, 0);  // 1.0
+    let p00 = pack(0, 0);  // 0.0
+    
+    // Front face (Red)
+    vertices[0] = n05; vertices[1] = n05; vertices[2] =  p05; vertices[3] = p10; vertices[4] = p00; vertices[5] = p00; vertices[6] = p10;
+    vertices[7] =  p05; vertices[8] = n05; vertices[9] =  p05; vertices[10]= p10; vertices[11]= p00; vertices[12]= p00; vertices[13]= p10;
+    vertices[14]=  p05; vertices[15]=  p05; vertices[16]=  p05; vertices[17]= p10; vertices[18]= p00; vertices[19]= p00; vertices[20]= p10;
+    vertices[21]= n05; vertices[22]= n05; vertices[23]=  p05; vertices[24]= p10; vertices[25]= p00; vertices[26]= p00; vertices[27]= p10;
+    vertices[28]=  p05; vertices[29]=  p05; vertices[30]=  p05; vertices[31]= p10; vertices[32]= p00; vertices[33]= p00; vertices[34]= p10;
+    vertices[35]= n05; vertices[36]=  p05; vertices[37]=  p05; vertices[38]= p10; vertices[39]= p00; vertices[40]= p00; vertices[41]= p10;
+
+    // Back face (Green)
+    vertices[42]= n05; vertices[43]= n05; vertices[44]= n05; vertices[45]= p00; vertices[46]= p10; vertices[47]= p00; vertices[48]= p10;
+    vertices[49]= n05; vertices[50]=  p05; vertices[51]= n05; vertices[52]= p00; vertices[53]= p10; vertices[54]= p00; vertices[55]= p10;
+    vertices[56]=  p05; vertices[57]=  p05; vertices[58]= n05; vertices[59]= p00; vertices[60]= p10; vertices[61]= p00; vertices[62]= p10;
+    vertices[63]= n05; vertices[64]= n05; vertices[65]= n05; vertices[66]= p00; vertices[67]= p10; vertices[68]= p00; vertices[69]= p10;
+    vertices[70]=  p05; vertices[71]=  p05; vertices[72]= n05; vertices[73]= p00; vertices[74]= p10; vertices[75]= p00; vertices[76]= p10;
+    vertices[77]=  p05; vertices[78]= n05; vertices[79]= n05; vertices[80]= p00; vertices[81]= p10; vertices[82]= p00; vertices[83]= p10;
+
+    // Left face (Blue)
+    vertices[84]= n05; vertices[85]= n05; vertices[86]= n05; vertices[87]= p00; vertices[88]= p00; vertices[89]= p10; vertices[90]= p10;
+    vertices[91]= n05; vertices[92]= n05; vertices[93]=  p05; vertices[94]= p00; vertices[95]= p00; vertices[96]= p10; vertices[97]= p10;
+    vertices[98]= n05; vertices[99]=  p05; vertices[100]=  p05; vertices[101]= p00; vertices[102]= p00; vertices[103]= p10; vertices[104]= p10;
+    vertices[105]= n05; vertices[106]= n05; vertices[107]= n05; vertices[108]= p00; vertices[109]= p00; vertices[110]= p10; vertices[111]= p10;
+    vertices[112]= n05; vertices[113]=  p05; vertices[114]=  p05; vertices[115]= p00; vertices[116]= p00; vertices[117]= p10; vertices[118]= p10;
+    vertices[119]= n05; vertices[120]=  p05; vertices[121]= n05; vertices[122]= p00; vertices[123]= p00; vertices[124]= p10; vertices[125]= p10;
+
+    // Right face (Yellow)
+    vertices[126]=  p05; vertices[127]= n05; vertices[128]= n05; vertices[129]= p10; vertices[130]= p10; vertices[131]= p00; vertices[132]= p10;
+    vertices[133]=  p05; vertices[134]=  p05; vertices[135]= n05; vertices[136]= p10; vertices[137]= p10; vertices[138]= p00; vertices[139]= p10;
+    vertices[140]=  p05; vertices[141]=  p05; vertices[142]=  p05; vertices[143]= p10; vertices[144]= p10; vertices[145]= p00; vertices[146]= p10;
+    vertices[147]=  p05; vertices[148]= n05; vertices[149]= n05; vertices[150]= p10; vertices[151]= p10; vertices[152]= p00; vertices[153]= p10;
+    vertices[154]=  p05; vertices[155]=  p05; vertices[156]=  p05; vertices[157]= p10; vertices[158]= p10; vertices[159]= p00; vertices[160]= p10;
+    vertices[161]=  p05; vertices[162]= n05; vertices[163]=  p05; vertices[164]= p10; vertices[165]= p10; vertices[166]= p00; vertices[167]= p10;
+
+    // Top face (Cyan)
+    vertices[168]= n05; vertices[169]=  p05; vertices[170]= n05; vertices[171]= p00; vertices[172]= p10; vertices[173]= p10; vertices[174]= p10;
+    vertices[175]= n05; vertices[176]=  p05; vertices[177]=  p05; vertices[178]= p00; vertices[179]= p10; vertices[180]= p10; vertices[181]= p10;
+    vertices[182]=  p05; vertices[183]=  p05; vertices[184]=  p05; vertices[185]= p00; vertices[186]= p10; vertices[187]= p10; vertices[188]= p10;
+    vertices[189]= n05; vertices[190]=  p05; vertices[191]= n05; vertices[192]= p00; vertices[193]= p10; vertices[194]= p10; vertices[195]= p10;
+    vertices[196]=  p05; vertices[197]=  p05; vertices[198]=  p05; vertices[199]= p00; vertices[200]= p10; vertices[201]= p10; vertices[202]= p10;
+    vertices[203]=  p05; vertices[204]=  p05; vertices[205]= n05; vertices[206]= p00; vertices[207]= p10; vertices[208]= p10; vertices[209]= p10;
+
+    // Bottom face (Magenta)
+    vertices[210]= n05; vertices[211]= n05; vertices[212]= n05; vertices[213]= p10; vertices[214]= p00; vertices[215]= p10; vertices[216]= p10;
+    vertices[217]=  p05; vertices[218]= n05; vertices[219]= n05; vertices[220]= p10; vertices[221]= p00; vertices[222]= p10; vertices[223]= p10;
+    vertices[224]=  p05; vertices[225]= n05; vertices[226]=  p05; vertices[227]= p10; vertices[228]= p00; vertices[229]= p10; vertices[230]= p10;
+    vertices[231]= n05; vertices[232]= n05; vertices[233]= n05; vertices[234]= p10; vertices[235]= p00; vertices[236]= p10; vertices[237]= p10;
+    vertices[238]=  p05; vertices[239]= n05; vertices[240]=  p05; vertices[241]= p10; vertices[242]= p00; vertices[243]= p10; vertices[244]= p10;
+    vertices[245]= n05; vertices[246]= n05; vertices[247]=  p05; vertices[248]= p10; vertices[249]= p00; vertices[250]= p10; vertices[251]= p10;
+
+    cubeHandle = _sys_metal_create_static_buffer(vertices, 252 * 4);
+    matrixHandle = _sys_metal_create_dynamic_buffer(16 * 4);
+    
+    _sys_metal_run();
+}
+
+// ---------------------------------------------------------
+// The Native Callback: Invoked by macOS at 60/120Hz
+// ---------------------------------------------------------
+function ohn_tick() {
+    rotation = rotation + 1; // Pure integer frame counter
+    
+    const cy = _sys_math_cos(rotation);
+    const sy = _sys_math_sin(rotation);
+    
+    let half_rot = rotation >> 1;
+    const cx = _sys_math_cos(half_rot);
+    const sx = _sys_math_sin(half_rot);
+    
+    let p00 = pack(0, 0);
+    let neg_one = pack(-1, 0);
+    
+    // Build a combined X-Y rotation matrix (Column-Major for Metal)
+    matrices[0] = cy;
+    matrices[1] = multiply(sx, sy);
+    matrices[2] = multiply(multiply(neg_one, cx), sy);
+    matrices[3] = p00;
+    
+    matrices[4] = p00;
+    matrices[5] = cx;
+    matrices[6] = sx;
+    matrices[7] = p00;
+    
+    matrices[8]  = multiply(neg_one, sy); 
+    matrices[9]  = multiply(cy, sx); 
+    matrices[10] = multiply(cy, cx); 
+    matrices[11] = p00;
+    
+    // Translation (X, Y, Z) - shift Z back by 0.5 so it stays inside Metal's [0, 1] clip space
+    matrices[12] = p00; 
+    matrices[13] = p00;   
+    matrices[14] = pack(1, 1); // 0.5
+    matrices[15] = pack(1, 0); // 1.0 (W)
+    
+    _sys_metal_update_dynamic_buffer(matrixHandle, matrices);
+    _sys_metal_draw_instanced(cubeHandle, matrixHandle, 1);
+}

@@ -1,16 +1,80 @@
 // http.ohn — Ohnrscript Raw HTTP Parser
 // 
-// Scans the incoming DOD buffer for the '\r\n\r\n' end-of-header sequence.
-// Operates exclusively on flat memory pointers (no string allocation).
+// Scans the incoming DOD buffer for the '\r\n\r\n' end-of-header sequence,
+// matches the HTTP method via integer casting, and computes a rolling route hash.
 
 let CR = 13; // '\r'
 let LF = 10; // '\n'
+let SP = 32; // ' ' (0x20)
+let QM = 63; // '?' (0x3F)
+
+// Integer-Cast Method Constants (Little Endian)
+// "GET " -> 0x20544547 (542393671)
+let METHOD_GET = 542393671;
+// "POST" -> 0x54534F50 (1414745936)
+let METHOD_POST = 1414745936;
+
+const ohn_mem_read_i8 = __extern('sys_mem_read_i8');
+const ohn_mem_read_i32 = __extern('sys_mem_read_i32');
+
+function http_parse_method(buf_ptr) {
+    let method_int = ohn_mem_read_i32(buf_ptr, 0) | 0;
+    
+    if (method_int === METHOD_GET) {
+        return 1;
+    }
+    if (method_int === METHOD_POST) {
+        return 2;
+    }
+    return 0; // Unknown
+}
+
+let parse_result = new Int32Array(2); // [hash, end_offset]
+
+function http_parse_route_hash(buf_ptr, start_offset, total_bytes) {
+    let i = start_offset | 0;
+    let limit = total_bytes | 0;
+    
+    // Safety check: max URI length 2048
+    if (limit > 2048) {
+        limit = 2048;
+    }
+
+    let hash = 5381; // djb2 hash base
+    
+    while (i < limit) {
+        let b = ohn_mem_read_i8(buf_ptr, i) | 0;
+        
+        if (b === SP) {
+            parse_result[0] = hash;
+            parse_result[1] = i; 
+            return 1; // Success
+        }
+        
+        if (b === QM) {
+            parse_result[0] = hash;
+            // Scan forward to the space
+            let j = (i + 1) | 0;
+            while (j < limit) {
+                let check_b = ohn_mem_read_i8(buf_ptr, j) | 0;
+                if (check_b === SP) {
+                    parse_result[1] = j;
+                    return 1; // Success
+                }
+                j = (j + 1) | 0;
+            }
+            return -1; // Missing SP
+        }
+        
+        hash = ((hash * 33) + b) | 0;
+        i = (i + 1) | 0;
+    }
+    
+    return -1; // Overflow or malformed
+}
 
 // Returns the index of the byte immediately following '\r\n\r\n',
 // or -1 if the sequence is not found yet (incomplete headers).
-//
-// buf_ptr: Absolute pointer to the start of the slot's ring buffer (i64).
-// total_bytes: The number of bytes read so far into the buffer.
 function http_find_headers_end(buf_ptr, total_bytes) {
     if ((total_bytes | 0) < 4) {
         return -1;
@@ -20,8 +84,6 @@ function http_find_headers_end(buf_ptr, total_bytes) {
     let limit = (total_bytes - 3) | 0;
 
     while (i < limit) {
-        // Ohnrscript pointer arithmetic & dereferencing using pseudo-externs
-        // In reality, the compiler will lower this to `load i8, ptr %addr`.
         let b0 = ohn_mem_read_i8(buf_ptr, i) | 0;
         
         if (b0 === CR) {
@@ -41,11 +103,51 @@ function http_find_headers_end(buf_ptr, total_bytes) {
 
     return -1;
 }
+// router.ohn — Ohnrscript Flat Router
+// 
+// Acts as a branch-optimized jump table utilizing direct switch/case logic
+// on pre-computed integer hashes.
 
-// ── Memory Access Stub ──
-// Emitted natively by the LLVM compiler. 
-// Reads 1 byte from (ptr + offset).
-const ohn_mem_read_i8 = __extern('sys_mem_read_i8');
+// ── DJB2 Route Hashes ──
+// Hash('/') -> 177620 (Fixed typo)
+let HASH_ROOT = 177620;
+// Hash('/users') -> 6951371504038 (64-bit exact value)
+let HASH_USERS = 6951371504038;
+
+const ohn_fill_response = __extern('sys_fill_response');
+
+function router_handle(method, route_hash, slot) {
+    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
+    
+    // We only support GET (1) for now
+    if (method !== 1) {
+        // 405 Method Not Allowed
+        ohn_fill_response(buf_offset, 405);
+        bytes_written[slot] = 68;
+        state_table[slot] = STATE_WRITING;
+        return 0;
+    }
+
+    if (route_hash === HASH_ROOT) {
+        ohn_fill_response(buf_offset, 2001); 
+        bytes_written[slot] = 75;
+        state_table[slot] = STATE_WRITING;
+        return 0;
+    }
+    
+    if (route_hash === HASH_USERS) {
+        ohn_fill_response(buf_offset, 2002); 
+        bytes_written[slot] = 95; 
+        state_table[slot] = STATE_WRITING;
+        return 0;
+    }
+
+    // 404 Not Found
+    ohn_fill_response(buf_offset, 404);
+    bytes_written[slot] = 62;
+    state_table[slot] = STATE_WRITING;
+    return 0;
+}
 // mpsc.ohn — Lock-Free Multi-Producer Single-Consumer Queue
 // Written in Ohnrscript.
 //
@@ -357,7 +459,13 @@ let fd_table        = new Int32Array(MAX_CONN);
 let state_table     = new Int32Array(MAX_CONN);
 let bytes_read      = new Int32Array(MAX_CONN);
 let bytes_written   = new Int32Array(MAX_CONN);
-let last_active_ts  = new Int32Array(MAX_CONN);  // used by timeout Min-Heap
+let last_active_ts  = new Int32Array(MAX_CONN);
+
+// Parser State Tracking for Fragmented TCP
+let parse_state      = new Int32Array(MAX_CONN); // 0=Method, 1=Route, 2=Headers
+let parse_method     = new Int32Array(MAX_CONN);
+let current_hash     = new Int32Array(MAX_CONN);
+let bytes_processed  = new Int32Array(MAX_CONN);
 
 // Active connection count — used for graceful draining.
 let active_count    = 0;
@@ -421,20 +529,15 @@ function closeSlot(kq, slot) {
     state_table[slot] = STATE_IDLE;
     bytes_read[slot]  = 0;
     bytes_written[slot] = 0;
+    parse_state[slot] = 0;
+    parse_method[slot] = 0;
+    current_hash[slot] = 0;
+    bytes_processed[slot] = 0;
     active_count = (active_count - 1) | 0;
 }
 
-// ── HTTP Response Writer ──
-// Writes a minimal HTTP/1.1 200 OK response into the read_buf slot.
-// In a full implementation, the userland API writes here via res.write().
-// res.end() transitions state → STATE_WRITING and registers EPOLLOUT/EVFILT_WRITE.
-function writeResponse(slot) {
-    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
-    // Bypassing string literal parser limitation using C
-    ohn_fill_http_response(buf_offset);
-    bytes_written[slot] = 75;
-    state_table[slot]   = STATE_WRITING;
-}
+// ── HTTP Response Writer (Removed in favor of router.ohn) ──
+// Function intentionally omitted.
 
 // ── Accept new connections ──
 function acceptConnections(kq, listen_fd) {
@@ -464,6 +567,10 @@ function acceptConnections(kq, listen_fd) {
         state_table[slot] = STATE_READING;
         bytes_read[slot]  = 0;
         bytes_written[slot] = 0;
+        parse_state[slot] = 0;
+        parse_method[slot] = 0;
+        current_hash[slot] = 0;
+        bytes_processed[slot] = 0;
         active_count = (active_count + 1) | 0;
 
         // Register for read-readiness with kqueue/epoll.
@@ -485,18 +592,55 @@ function handleRead(kq, slot) {
 
     bytes_read[slot] = (bytes_read[slot] + n) | 0;
 
-    // Minimal HTTP parser: wait for \r\n\r\n end-of-headers sequence.
-    // A full implementation would call the llhttp extern here.
-    // For now: assume request is complete if we have read > 4 bytes.
-    if ((bytes_read[slot] | 0) >= 4) {
-        // Deregister EPOLLIN / EVFILT_READ to prevent re-reads (backpressure).
-        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+    let total_read = bytes_read[slot] | 0;
 
-        // Build response into slot buffer, transition to WRITING state.
-        writeResponse(slot);
+    // 1. Parse Method if we haven't yet and we have at least 5 bytes (e.g. "GET /")
+    if ((parse_state[slot] | 0) === 0 && total_read >= 5) {
+        let method = http_parse_method(buf_offset) | 0;
+        parse_method[slot] = method;
+        
+        // Find where the path starts. 'GET ' is 4 bytes.
+        let offset = 4;
+        if (method === 2) { // POST
+            offset = 5;
+        }
+        bytes_processed[slot] = offset;
+        parse_state[slot] = 1;
+    }
 
-        // Register EPOLLOUT / EVFILT_WRITE to flush the response.
-        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+    // 2. Parse Route Hash if we have a method and aren't done yet
+    if ((parse_state[slot] | 0) === 1) {
+        let current_offset = bytes_processed[slot] | 0;
+        
+        let result = http_parse_route_hash(buf_offset, current_offset, total_read) | 0;
+        if (result === 1) {
+            // Found space or '?', parsing complete
+            current_hash[slot] = parse_result[0] | 0;
+            bytes_processed[slot] = parse_result[1] | 0; // The end offset
+            parse_state[slot] = 2; // Moving to wait for header end
+        } else if (result === -1 && total_read > 2048) {
+            // Buffer overread safeguard
+            closeSlot(kq, slot);
+            return 0;
+        }
+    }
+
+    // 3. Wait for \r\n\r\n boundary
+    if ((parse_state[slot] | 0) === 2) {
+        let header_end = http_find_headers_end(buf_offset, total_read) | 0;
+        if (header_end > 0) {
+            // Deregister EPOLLIN / EVFILT_READ to prevent re-reads (backpressure).
+            ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+
+            // Execute Router Pipeline directly from slot state
+            let method = parse_method[slot] | 0;
+            let hash = current_hash[slot] | 0;
+            
+            router_handle(method, hash, slot);
+
+            // Register EPOLLOUT / EVFILT_WRITE to flush the response.
+            ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+        }
     }
 }
 

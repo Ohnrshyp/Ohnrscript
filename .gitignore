@@ -6,3 +6,7 @@ vectors.bin
 vectors.json
 mock-payload.json
 benchmarks/server-memory-log.csv
+vectors.json
+vectors.bin
+packages-llvm/db.ohn/disk.img
+.bootstrap/

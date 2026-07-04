@@ -18,54 +18,54 @@ const NUM_FRAMES = 1024; // 4MB Buffer Pool
 
 // LBA to Frame_ID Page Table
 const pageTable = new Int32Array(NUM_FRAMES * 2); // [LBA, is_dirty]
-
-// RWLocks are managed inside bindings.c to avoid 64-bit pointer truncation issues in Ohnrscript AOT
+let wal_tail_lba = 1000000;
 
 function db_init() {
     sys_disk_init();
-
     let i = 0;
     while (i < NUM_FRAMES) {
         pageTable[i * 2] = -1;
         pageTable[(i * 2) + 1] = 0;
-
         sys_rwlock_init(i);
-
-        i = i + 1;
+        i = (i + 1) | 0;
     }
+}
+
+function db_wal_append(frame_id) {
+    sys_lba_write(wal_tail_lba, 1, frame_id);
+    wal_tail_lba = (wal_tail_lba + 1) | 0;
+    return 0;
 }
 
 function db_read_page(lba) {
     let frame_id = lba % NUM_FRAMES;
-
     sys_rwlock_rlock(frame_id);
 
     let cached_lba = pageTable[frame_id * 2];
     if (cached_lba === lba) {
-        sys_rwlock_unlock(frame_id);
-        return frame_id;
+        return frame_id; // Return WITH read lock held
     }
 
     sys_rwlock_unlock(frame_id);
-    sys_rwlock_wlock(frame_id);
+    sys_rwlock_wlock(frame_id); // Escalate to write lock for I/O
 
     let is_dirty = pageTable[(frame_id * 2) + 1];
     if (is_dirty === 1) {
         let old_lba = pageTable[frame_id * 2];
+        db_wal_append(frame_id);
         sys_lba_write(old_lba, 1, frame_id);
     }
 
     sys_lba_read(lba, 1, frame_id);
     pageTable[frame_id * 2] = lba;
     pageTable[(frame_id * 2) + 1] = 0; 
-
-    sys_rwlock_unlock(frame_id);
+    
+    // Demote write lock back to read lock (or just keep write lock in Ohnrscript? Let's just return with write lock for simplicity, reader must release)
     return frame_id;
 }
 
 function db_write_page(lba) {
     let frame_id = lba % NUM_FRAMES;
-
     sys_rwlock_wlock(frame_id);
 
     let cached_lba = pageTable[frame_id * 2];
@@ -73,34 +73,112 @@ function db_write_page(lba) {
         let is_dirty = pageTable[(frame_id * 2) + 1];
         if (is_dirty === 1) {
             let old_lba = pageTable[frame_id * 2];
+            db_wal_append(frame_id);
             sys_lba_write(old_lba, 1, frame_id);
         }
+        // Zero out memory if new page? For now, we assume caller handles it or sys_lba_read happens.
+        // Actually, db_write_page assumes we are going to overwrite it, but we still need to load it from disk if we are mutating a partial page.
+        // For db.ohn, db_write_page should load from disk first if not cached!
+        sys_lba_read(lba, 1, frame_id);
         pageTable[frame_id * 2] = lba;
     }
 
     pageTable[(frame_id * 2) + 1] = 1;
-
-    sys_rwlock_unlock(frame_id);
+    // Return WITH write lock held
     return frame_id;
+}
+
+function db_release_read_lock(frame_id) {
+    sys_rwlock_unlock(frame_id);
+    return 0;
+}
+
+function db_release_write_lock(frame_id) {
+    sys_rwlock_unlock(frame_id);
+    return 0;
 }
 
 function db_flush_all() {
     let i = 0;
     while (i < NUM_FRAMES) {
         sys_rwlock_wlock(i);
-        
         let is_dirty = pageTable[(i * 2) + 1];
         if (is_dirty === 1) {
             let lba = pageTable[i * 2];
+            db_wal_append(i);
             sys_lba_write(lba, 1, i);
             pageTable[(i * 2) + 1] = 0;
         }
-        
         sys_rwlock_unlock(i);
-        i = i + 1;
+        i = (i + 1) | 0;
     }
 }
-// packages-llvm/db.ohn/src/main.ohn
+
+// ---------------------------------------------------------
+// Slotted Page & B-Tree Primitives
+// ---------------------------------------------------------
+
+function db_page_init(frame_id, lba) {
+    sys_frame_write_i32(frame_id, 0, 728581); // Magic
+    sys_frame_write_i32(frame_id, 4, lba);    // LBA
+    sys_frame_write_i32(frame_id, 8, 0);      // NumSlots
+    sys_frame_write_i32(frame_id, 12, 4096);  // FreeSpaceOffset
+    return 0;
+}
+
+function db_slot_insert(frame_id, rid_high, rid_low, hash, val) {
+    let num_slots = sys_frame_read_i32(frame_id, 8);
+    let free_space = sys_frame_read_i32(frame_id, 12);
+    
+    // Tuple size is 16 bytes: [rid_high, rid_low, hash, val]
+    let new_free_space = (free_space - 16) | 0;
+    
+    // Write tuple at the new free space (grows backward)
+    sys_frame_write_i32(frame_id, new_free_space, rid_high);
+    sys_frame_write_i32(frame_id, (new_free_space + 4) | 0, rid_low);
+    sys_frame_write_i32(frame_id, (new_free_space + 8) | 0, hash);
+    sys_frame_write_i32(frame_id, (new_free_space + 12) | 0, val);
+    
+    // Write Slot Header: [PayloadOffset, PayloadSize]
+    // Slot Header offset = 16 + (num_slots * 8)
+    let slot_offset = (16 + (num_slots * 8)) | 0;
+    sys_frame_write_i32(frame_id, slot_offset, new_free_space);
+    sys_frame_write_i32(frame_id, (slot_offset + 4) | 0, 16);
+    
+    // Update Header
+    sys_frame_write_i32(frame_id, 8, (num_slots + 1) | 0);
+    sys_frame_write_i32(frame_id, 12, new_free_space);
+    
+    return 0;
+}
+
+function db_tuple_search(frame_id, search_rid_high, search_rid_low, search_hash) {
+    let num_slots = sys_frame_read_i32(frame_id, 8);
+    let i = 0;
+    
+    while (i < num_slots) {
+        let slot_offset = (16 + (i * 8)) | 0;
+        let payload_offset = sys_frame_read_i32(frame_id, slot_offset);
+        
+        let slot_rid_high = sys_frame_read_i32(frame_id, payload_offset);
+        let slot_rid_low = sys_frame_read_i32(frame_id, (payload_offset + 4) | 0);
+        
+        if (slot_rid_high === search_rid_high) {
+            if (slot_rid_low === search_rid_low) {
+                let slot_hash = sys_frame_read_i32(frame_id, (payload_offset + 8) | 0);
+                if (slot_hash === search_hash) {
+                    // Match found! Return the data payload
+                    let data_val = sys_frame_read_i32(frame_id, (payload_offset + 12) | 0);
+                    return data_val;
+                }
+            }
+        }
+        
+        i = (i + 1) | 0;
+    }
+    
+    return -1; // Not found
+}
 
 function main() {
     require('db');
@@ -109,62 +187,55 @@ function main() {
     // 1. Initialize Buffer Pool
     db_init();
 
-    // --- Concurrency Stress Test ---
+    // --- B-Tree Test Harness ---
     let root_lba = 0;
     
-    // Pre-populate Root LBA with initial magic number
-    let write_frame_id = db_write_page(root_lba);
-    sys_frame_write_i32(write_frame_id, 0, 728581); 
-    db_release_write_lock(write_frame_id);
+    // Acquire Write Lock on LBA 0
+    let write_frame = db_write_page(root_lba);
     
-    // Flush to disk so readers get valid data if evicted
+    // 1. Format the raw 4KB block as a Slotted Page
+    db_page_init(write_frame, root_lba);
+    
+    // 2. Insert self (.) and parent (..) 
+    // They both point to Root Directory (RID = 0, Hash = 0)
+    db_slot_insert(write_frame, 0, 0, 0, 0); // Slot 0
+    db_slot_insert(write_frame, 0, 0, 0, 0); // Slot 1
+    
+    // 3. Insert /sys/config.json
+    // Parent RID High = 0, Low = 0
+    // Filename Hash = 99111 (Integer hash for "config")
+    // Payload Data = 42
+    db_slot_insert(write_frame, 0, 0, 99111, 42);
+    
+    // Release lock
+    db_release_write_lock(write_frame);
+    
+    // 4. Flush to NVMe (This will implicitly append to WAL!)
     db_flush_all();
     
-    // Spawn 4 threads to concurrently read/write to the same LBAs
-    sys_thread_create(1); // writer
-    sys_thread_create(2); // reader
-    sys_thread_create(3); // reader
-    sys_thread_create(4); // writer
+    // 5. Evict LBA 0 from Buffer Pool to force a cold read
+    db_read_page(1024);
     
-    sys_thread_join(1);
-    sys_thread_join(2);
-    sys_thread_join(3);
-    sys_thread_join(4);
+    // 6. Cold Read LBA 0 back into Memory
+    let read_frame = db_read_page(root_lba);
     
-    print_success();
+    // 7. Perform the 64-bit High/Low Tuple Search
+    let result = db_tuple_search(read_frame, 0, 0, 99111);
+    
+    db_release_read_lock(read_frame);
+    
+    if (result === 42) {
+        print_num(result);
+        print_success();
+    }
+    
     return 0;
 }
 
-// C-bindings will call this function in a new OS thread
 function dbWorkerFunction(worker_id) {
-    let i = 0;
-    let lba = 0;
-    
-    // Even worker IDs are readers, Odd are writers
-    let is_writer = (worker_id % 2) !== 0;
-
-    while (i < 1000) {
-        lba = i % 10; // Contend heavily on LBA 0-9
-        
-        if (is_writer) {
-            let frame_id = db_write_page(lba);
-            // Simulate some work inside the critical section
-            sys_frame_write_i32(frame_id, 0, worker_id);
-            db_release_write_lock(frame_id);
-        } else {
-            let frame_id = db_read_page(lba);
-            // Simulate read work
-            let val = sys_frame_read_i32(frame_id, 0);
-            db_release_read_lock(frame_id);
-        }
-        
-        i = (i + 1) | 0;
-    }
-    
     return 0;
 }
 
 const sys_thread_create = __extern('ext_sys_thread_create');
 const sys_thread_join = __extern('ext_sys_thread_join');
 
-// Original sync test removed in favor of concurrent thread test

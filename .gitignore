@@ -10,3 +10,5 @@ vectors.json
 vectors.bin
 packages-llvm/db.ohn/disk.img
 .bootstrap/
+
+*.vsix

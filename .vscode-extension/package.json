@@ -12,10 +12,15 @@
   "contributes": {
     "languages": [
       {
-        "id": "typescript",
+        "id": "ohnrscript",
+        "aliases": ["Ohnrscript", "ohn"],
         "extensions": [
           ".ohn"
-        ]
+        ],
+        "icon": {
+          "light": "./ohn-icon.svg",
+          "dark": "./ohn-icon.svg"
+        }
       }
     ]
   }

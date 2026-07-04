@@ -9,7 +9,9 @@ const FILES_TO_INCLUDE = [
     'compiler/src/core/arena.ohn',
     'compiler/src/frontend/parser.ohn',
     'compiler/src/codegen/generator-llvm.ohn',
-    'packages-llvm/ohn-kernel/src/kernel.ohn'
+    'packages-llvm/ohn-kernel/src/kernel.ohn',
+    'packages-llvm/ohn-kernel/boot/boot.c',
+    'packages-llvm/three.ohn/three.ohn'
 ];
 
 const header = `

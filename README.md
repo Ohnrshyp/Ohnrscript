@@ -93,50 +93,49 @@ The final stage of the pipeline guarantees deterministic, low-memory disk I/O.
 
 Because Ohnrscript is a dual-compiling language, its ecosystem is divided to support both execution targets. The `packages-llvm/` directory provides the bare-metal system architecture for the LLVM target, while the `packages/` directory provides zero-allocation web APIs for the V8 target. Together, they form what we believe is a new **sovereign computing stack**:
 
-
 ### The LLVM Stack (`packages-llvm/`)
 These packages utilize direct LLVM bindings to build system-level architecture from scratch.
 
-### `ohn-kernel`
+#### `ohn-kernel`
 A custom x86 multiboot-compliant kernel written entirely in Ohnrscript syntax. 
 - Boots directly from the BIOS/UEFI on physical hardware or QEMU.
 - Establishes a VGA buffer at physical address `0xB8000`.
 - Maps physical memory dynamically without standard Linux paging overhead.
 - Executes user-space code with absolute zero context-switching latency.
 
-### `node.ohn`
+#### `node.ohn`
 A natively-compiled web server and Node.js runtime replacement.
 - Utilizes `kqueue/epoll` event loops and `SO_REUSEPORT` fork logic.
 - Handles massive concurrent socket connections by completely bypassing V8 and libuv.
 - Employs zero-dynamic-allocation ring buffers for network I/O.
 
-### `three.ohn`
+#### `three.ohn`
 A custom mathematics and 3D graphics engine implemented entirely via bit-packed integer arithmetic. 
 - Bypasses hardware Floating-Point Units (FPUs).
 - Uses software-only math execution to guarantee deterministic calculations across heterogeneous data center hardware.
 - Allows massive neural network state and simulations to run exactly the same way on every CPU architecture.
 
-### `db.ohn`
+#### `db.ohn`
 A bare-metal Block Storage interface and disk IO manager. 
 - Writes directly to physical disk images (`disk.img`) using raw block offsets.
 - Bypasses standard OS file systems (ext4/NTFS) for zero-copy, direct-to-disk read/writes.
 
-### `tls.ohn`
+#### `tls.ohn`
 Native cryptography and secure communications.
 - Integrates deterministic, pre-allocated security primitives using `mbedtls` architecture.
 - Handles asymmetric key exchange directly in kernel space.
 
-### `ohn-vector-native`
+#### `ohn-vector-native`
 SIMD-optimized Float32 vector operations for machine learning workloads.
 - Benchmarked at **9.42x faster** than V8 Turbofan for `dotProduct` and `l2NormSquared`.
 - Approaches the theoretical maximum 4-wide ARM NEON SIMD ceiling using Ohnrscript LLVM code generation.
 
-### `ohnrbuffs`
+#### `ohnrbuffs`
 A zero-allocation serialization format (comparable to FlatBuffers or Cap'n Proto).
 - Encodes massive streaming payloads in micro-seconds by calculating exact buffer sizes at compile time.
 - Compiles byte-shifting logic directly into the generated binary, avoiding all dynamic reflection.
 
-### `workers.ohn`
+#### `workers.ohn`
 Native multi-threading and concurrency primitives.
 - Implements lock-free MPSC (Multi-Producer, Single-Consumer) queues.
 - Utilizes raw `eventfd` for zero-latency thread wakeups.
@@ -144,17 +143,17 @@ Native multi-threading and concurrency primitives.
 ### The Web-Native Library (`packages/`)
 While `packages-llvm` handles the bare-metal system architecture, the `packages` directory provides ergonomic, web-native APIs built using strict zero-allocation Data-Oriented Design (DOD) principles.
 
-### `ohn-ws`
+#### `ohn-ws`
 A massive-throughput WebSocket implementation.
 - Handles continuous socket framing and binary payloads.
 - Maintains connection state with zero dynamic object allocation overhead.
 
-### `ohn-zod`
+#### `ohn-zod`
 Schema validation and static parsing.
 - Validates network payloads without instantiating temporary validation objects.
 - Designed to run at bare-metal speeds in high-frequency data pipelines.
 
-### `ohn-cbor`, `ohn-cookie`, & `ohn-uuid`
+#### `ohn-cbor`, `ohn-cookie`, & `ohn-uuid`
 Data serialization and network identifiers.
 - Provides strict, typed interfaces for processing network payloads.
 - Ensures all memory mappings are fully deterministic during decoding.

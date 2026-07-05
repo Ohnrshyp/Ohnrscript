@@ -3,26 +3,33 @@ const fs = require('fs');
 const path = require('path');
 
 const dir = __dirname;
-const safeBenchmarks = [
-    'llvm-vs-js-bench.js',
-    'llvm-native-bench.js',
-    'vector-benchmark.js',
-    'benchmark-protobuf-vs-ohnrscript.js',
-    'v8-tracing-benchmark.js'
+
+const suites = [
+    path.join(dir, 'suites/core'),
+    path.join(dir, 'suites/protobuf')
 ];
 
-const files = fs.readdirSync(dir).filter(f => safeBenchmarks.includes(f));
+let benchmarkFiles = [];
+for (const suite of suites) {
+    if (fs.existsSync(suite)) {
+        const files = fs.readdirSync(suite)
+            .filter(f => f.endsWith('.js'))
+            .map(f => path.join(suite, f));
+        benchmarkFiles = benchmarkFiles.concat(files);
+    }
+}
 
 console.log('🚀 Running all Ohnrscript benchmarks...\n');
 
-for (const file of files) {
+for (const filePath of benchmarkFiles) {
+    const fileName = path.basename(filePath);
     console.log(`\n=============================================================`);
-    console.log(`Executing ${file}`);
+    console.log(`Executing ${fileName}`);
     console.log(`=============================================================`);
     try {
-        execSync(`node --expose-gc ${path.join(dir, file)}`, { stdio: 'inherit' });
+        execSync(`node --expose-gc ${filePath}`, { stdio: 'inherit' });
     } catch (e) {
-        console.error(`❌ Error running ${file}`);
+        console.error(`❌ Error running ${fileName}`);
     }
 }
 console.log('\n✅ All benchmarks completed.');

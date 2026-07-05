@@ -164,18 +164,19 @@ GRUB multiboot2 → loads ELF → jumps to _start (boot.o)
 
 ---
 
-## Roadmap
+## The Path to Maturity (Completed)
 
-This is v0.1 — proof of concept. The path from here to a more capable kernel follows the Ohnrscript LLVM generator's maturity:
+When v0.1 of this kernel was first built, it served strictly as a proof-of-concept. At the time, the Ohnrscript LLVM generator could not yet process loops or external bindings. 
 
-| Feature | Generator requirement | Unlocks |
+Since then, the LLVM generator has reached production maturity, successfully implementing the following critical features:
+
+| Feature | Unlocked Capability | Ecosystem Impact |
 |---|---|---|
-| `break`/`continue` | ~30 lines | Loop-based interrupt polling |
-| FFI external calls | ~50 lines | Read keyboard port, PIC/APIC setup |
-| `obj.prop` access | ~40 lines | Struct-like hardware register access |
-| `throw`/`try` | ~60 lines | Kernel panic handler |
+| `break`/`continue` | Loop-based interrupt polling | Unlocked `workers.ohn` event loops |
+| FFI external calls | PIC/APIC setup & C-bindings | Unlocked `tls.ohn` via `mbedtls` |
+| `obj.prop` access | Struct-like hardware registers | Unlocked massive socket state in `node.ohn` |
 
-Each generator addition directly extends what the kernel can do — the same `.ohn` source file, the same pipeline, more hardware capability.
+It was the successful completion of these compiler features that allowed Ohnrscript to expand from a simple Ring 0 VGA-buffer kernel into the comprehensive **sovereign computing stack** seen in the root ecosystem today.
 
 ---
 

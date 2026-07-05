@@ -3,7 +3,15 @@ const fs = require('fs');
 const path = require('path');
 
 const dir = __dirname;
-const files = fs.readdirSync(dir).filter(f => f.endsWith('.js') && f !== 'run-all-benchmarks.js');
+const safeBenchmarks = [
+    'llvm-vs-js-bench.js',
+    'llvm-native-bench.js',
+    'vector-benchmark.js',
+    'benchmark-protobuf-vs-ohnrscript.js',
+    'v8-tracing-benchmark.js'
+];
+
+const files = fs.readdirSync(dir).filter(f => safeBenchmarks.includes(f));
 
 console.log('🚀 Running all Ohnrscript benchmarks...\n');
 

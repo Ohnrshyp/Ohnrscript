@@ -2,8 +2,38 @@
 
 const ohn_inb = __extern('inb');
 const ohn_outb = __extern('outb');
+const ohn_inw = __extern('inw');
+const ohn_outw = __extern('outw');
+const ohn_inl = __extern('inl');
+const ohn_outl = __extern('outl');
+const ohn_poll_interrupt = __extern('poll_interrupt');
+const ohn_hlt = __extern('hlt');
+const ohn_sti = __extern('sti');
+const ohn_mfence = __extern('mfence');
 const ohn_vgaWriteChar = __extern('vgaWriteChar');
 const ohn_vgaClearScreen = __extern('vgaClearScreen');
+const ohn_get_virtio_rings_addr = __extern('get_virtio_rings_addr');
+const ohn_handleTcpPacket = __extern('handleTcpPacket');
+const ohn_handleBufferProvenance = __extern('handleBufferProvenance');
+const ohn_virtio_rx_kick = __extern('ext_virtio_rx_kick');
+const ohn_virtio_tx_kick = __extern('ext_virtio_tx_kick');
+// Dead externs removed by audit: readUint32_LE, readUint16_BE, readUint8,
+// writeUint8, getBaseOffset — all suffered i32/i64 ABI mismatch and are
+// replaced by local kfoh_readUint8 or tcp_local_ equivalents.
+const kernel_handleArpRequest = __extern('handleArpRequest');
+const kernel_sendGratuitousArp = __extern('sendGratuitousArp');
+const ohn_ext_push_tx_ring = __extern('ext_push_tx_ring');
+const ohn_ext_populate_rx_ring = __extern('ext_populate_rx_ring');
+const ohn_ext_dump_rings = __extern('ext_dump_rings');
+
+// Local byte reader — eliminates the i32/i64 __extern ABI mismatch
+// for the FOH packet classifier. Same logic as readUint8 in network_parser.ohn
+// but local to this module so both caller and callee agree on i64 parameter types.
+function kfoh_readUint8(buffer, byteOffset) {
+    let wordIndex = byteOffset >>> 2;
+    let bitShift = (byteOffset & 3) * 8;
+    return (buffer[wordIndex] >>> bitShift) & 0xFF;
+}
 
 // Scancode set 1 (US QWERTY). Only basic printable chars mapping.
 // Unmapped keys return 0.
@@ -105,79 +135,541 @@ function demoSort() {
     }
 }
 
+// ── VirtIO / PCI Network Driver ──────────────────────────────────────────
+function findVirtioNetworkCard() {
+    let bus = 0;
+    while (bus < 256) {
+        let device = 0;
+        while (device < 32) {
+            let address = ((0x40000000 << 1) | (bus << 16) | (device << 11) | 0) >>> 0;
+            ohn_outl(0xCF8, address);
+            let data = ohn_inl(0xCFC);
+            let vendorId = data & 0xFFFF;
+            let deviceId = (data >> 16) & 0xFFFF;
+            
+            if (vendorId === 0x1AF4 && deviceId === 0x1000) {
+                let cmd_address = ((0x40000000 << 1) | (bus << 16) | (device << 11) | 0x04) >>> 0;
+                ohn_outl(0xCF8, cmd_address);
+                let cmd = ohn_inl(0xCFC);
+                cmd = (cmd | 0x0005) & 0xFFFFFBFF; // Enable I/O (bit 0), Bus Master (bit 2), Clear Int Disable (bit 10)
+                ohn_outl(0xCF8, cmd_address);
+                ohn_outl(0xCFC, cmd);
+                
+                let int_address = ((0x40000000 << 1) | (bus << 16) | (device << 11) | 0x3C) >>> 0;
+                ohn_outl(0xCF8, int_address);
+                let int_data = ohn_inl(0xCFC);
+                let irq_num = int_data & 0xFF; // Store this in stateMem[6] in kernelMain
+
+                let bar0_address = ((0x40000000 << 1) | (bus << 16) | (device << 11) | 0x10) >>> 0;
+                ohn_outl(0xCF8, bar0_address);
+                let bar0 = ohn_inl(0xCFC);
+                
+                return bar0 & 0xFFFFFFFC | (irq_num << 24); // Pack IRQ into highest byte of BAR0
+            }
+            device = (device + 1) | 0;
+        }
+        bus = (bus + 1) | 0;
+    }
+    return 0;
+}
+
+function zeroMemory(addr, numBytes) {
+    let mem = addr;
+    let numWords = (numBytes / 4) | 0;
+    let i = 0;
+    while (i < numWords) {
+        mem[i] = 0;
+        i = (i + 1) | 0;
+    }
+}
+
+function initVirtio(ioBase) {
+    let ringsPA = ohn_get_virtio_rings_addr();
+    zeroMemory(ringsPA, 32768); // Zero 8 pages (RX + TX queues)
+
+    ohn_outb((ioBase + 18) | 0, 0x00); // 1. Reset
+    ohn_outb((ioBase + 18) | 0, 0x01); // 2. Acknowledge
+    ohn_outb((ioBase + 18) | 0, 0x03); // 3. Driver
+    
+    let offeredFeatures = ohn_inl((ioBase + 0) | 0);
+    
+    // Strictly limit to MAC address reading and Link Status interrupts.
+    // We explicitly EXCLUDE VIRTIO_NET_F_MRG_RXBUF (Bit 15) to permanently 
+    // guarantee a 10-byte header, regardless of hypervisor offerings.
+    const VIRTIO_NET_F_MAC    = 0x00000020; // Bit 5
+    const VIRTIO_NET_F_STATUS = 0x00010000; // Bit 16
+    
+    let safeFeatures = offeredFeatures & (VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS);
+    ohn_outl((ioBase + 4) | 0, safeFeatures); // 4. Features
+
+    // DIAGNOSTIC: Print negotiated features to verify no accidental CTRL_RX (bit 18)
+    ohn_outb(0x3F8, 70); // 'F'
+    ohn_outb(0x3F8, 84); // 'T'
+    ohn_outb(0x3F8, 58); // ':'
+    let ftShift = 28;
+    while (ftShift >= 0) {
+        let ftNib = (safeFeatures >>> ftShift) & 0xF;
+        if (ftNib < 10) { ohn_outb(0x3F8, (48 + ftNib) | 0); }
+        else { ohn_outb(0x3F8, (55 + ftNib) | 0); }
+        ftShift = (ftShift - 4) | 0;
+    }
+    ohn_outb(0x3F8, 10); // newline
+
+    // Legacy VirtIO doesn't have FEATURES_OK. Skip directly to Queue Setup.
+
+    // CRITICAL REORDER: Populate RX ring BEFORE writing PFN.
+    // When QEMU receives the PFN, it should see a fully populated queue.
+    // This eliminates any window where QEMU could cache an empty avail->idx.
+    ohn_ext_populate_rx_ring(0, 0);
+    ohn_mfence();
+
+    ohn_outw((ioBase + 14) | 0, 0); // 5. Queue Select (0 = RX)
+    let rxQueuePA = ringsPA;
+    ohn_outl((ioBase + 8) | 0, (rxQueuePA / 4096) | 0); // Queue Address
+    
+    // DIAGNOSTIC: Read back Queue 0 PFN and Queue Size
+    let rxPfnBack = ohn_inl((ioBase + 8) | 0);
+    let rxQsBack = ohn_inw((ioBase + 12) | 0);
+    ohn_outb(0x3F8, 82); // 'R'
+    ohn_outb(0x3F8, 88); // 'X'
+    ohn_outb(0x3F8, 58); // ':'
+    let rxShift = 28;
+    while (rxShift >= 0) {
+        let rxNib = (rxPfnBack >>> rxShift) & 0xF;
+        if (rxNib < 10) { ohn_outb(0x3F8, (48 + rxNib) | 0); }
+        else { ohn_outb(0x3F8, (55 + rxNib) | 0); }
+        rxShift = (rxShift - 4) | 0;
+    }
+    ohn_outb(0x3F8, 47); // '/'
+    // Print queue size
+    let qsShift = 12;
+    while (qsShift >= 0) {
+        let qsNib = (rxQsBack >>> qsShift) & 0xF;
+        if (qsNib < 10) { ohn_outb(0x3F8, (48 + qsNib) | 0); }
+        else { ohn_outb(0x3F8, (55 + qsNib) | 0); }
+        qsShift = (qsShift - 4) | 0;
+    }
+    ohn_outb(0x3F8, 10); // newline
+    
+    ohn_outw((ioBase + 14) | 0, 1); // 5. Queue Select (1 = TX)
+    let txQueuePA = (ringsPA + 16384) | 0; // Shift by 4 pages to prevent overlap
+    ohn_outl((ioBase + 8) | 0, (txQueuePA / 4096) | 0); // Queue Address
+    
+    // NOW tell the device we are ready (Acknowledge | Driver | Driver_OK = 7)
+    ohn_mfence();
+    ohn_outb((ioBase + 18) | 0, 0x07);
+    ohn_mfence();
+    
+    // Notify VirtIO that the RX available ring has buffers ready
+    ohn_outw((ioBase + 14) | 0, 0); // Select Queue 0 (RX)
+    ohn_virtio_rx_kick(ioBase, 0);
+
+    // Dump ring memory from C to verify contents
+    ohn_ext_dump_rings(0, 0);
+
+    // DEBUG PRINTS TO SERIAL
+    ohn_outb(0x3F8, 80); // 'P'
+    ohn_outb(0x3F8, 65); // 'A'
+    ohn_outb(0x3F8, 58); // ':'
+    let val = ringsPA | 0;
+    let shift = 28;
+    while (shift >= 0) {
+        let nibble = (val >>> shift) & 0xF;
+        if (nibble < 10) {
+            ohn_outb(0x3F8, (48 + nibble) | 0);
+        } else {
+            ohn_outb(0x3F8, (55 + nibble) | 0);
+        }
+        shift = (shift - 4) | 0;
+    }
+    ohn_outb(0x3F8, 10); // \n
+}
+
+function populateRxRing(ioBase, rxQueuePA) {
+    let vringDescPA = rxQueuePA;
+    let vringAvailPA = (rxQueuePA + 4096) | 0;
+    let rxBufferBase = 0x300000;
+    
+    let i = 0;
+    while (i < 256) {
+        let bufferAddr = (rxBufferBase + (i * 2048)) | 0;
+        let descMem = vringDescPA;
+        descMem[(i * 4) | 0] = bufferAddr;
+        descMem[((i * 4) + 1) | 0] = 0;
+        descMem[((i * 4) + 2) | 0] = 2048;
+        descMem[((i * 4) + 3) | 0] = 2; // VRING_DESC_F_WRITE
+        i = (i + 1) | 0;
+    }
+    
+    ohn_mfence();
+    
+    let vringAvailMem = vringAvailPA;
+    let j = 0;
+    while (j < 128) {
+        let val1 = (j * 2) | 0;
+        let val2 = ((j * 2) + 1) | 0;
+        vringAvailMem[(j + 1) | 0] = val1 | (val2 << 16);
+        j = (j + 1) | 0;
+    }
+    
+    ohn_mfence();
+    vringAvailMem[0] = 0x01000000; // idx=256, flags=0
+    ohn_mfence();
+}
+
+function recycleRxDescriptor(elemId, ringsPA, ioBase) {
+    let stateMem = 0x600000;
+    let vringAvailPA = (ringsPA + 4096) | 0;
+    let vringAvailMem = vringAvailPA;
+    let availIdx = stateMem[3] | 0;
+    
+    let ringIndex = availIdx & 255;
+    let wordIndex = ringIndex >>> 1;
+    let isUpper = (ringIndex & 1) !== 0;
+    
+    let currentWord = vringAvailMem[(wordIndex + 1) | 0] | 0;
+    if (isUpper) {
+        currentWord = (currentWord & 0x0000FFFF) | (elemId << 16);
+    } else {
+        currentWord = (currentWord & 0xFFFF0000) | (elemId & 0xFFFF);
+    }
+    vringAvailMem[(wordIndex + 1) | 0] = currentWord;
+    
+    ohn_mfence();
+    
+    availIdx = (availIdx + 1) & 0xFFFF;
+    stateMem[3] = availIdx;
+    
+    let flagsIdx = vringAvailMem[0] | 0;
+    flagsIdx = (flagsIdx & 0x0000FFFF) | (availIdx << 16);
+    vringAvailMem[0] = flagsIdx;
+    
+    ohn_mfence();
+    ohn_virtio_rx_kick(ioBase, 0);
+}
+
+function pushTxRing(txBufferPA, length, ringsPA, ioBase) {
+    let stateMem = 0x600000;
+    let txQueuePA = (ringsPA + 16384) | 0; 
+    let vringDescPA = txQueuePA;
+    let vringAvailPA = (txQueuePA + 4096) | 0;
+    
+    let vringDescMem = vringDescPA;
+    let vringAvailMem = vringAvailPA;
+    
+    let availIdx = stateMem[7] | 0; 
+    let ringIndex = availIdx & 255;
+    
+    // Write Descriptor
+    let descOffset = (ringIndex * 4) | 0;
+    vringDescMem[descOffset] = txBufferPA;
+    vringDescMem[(descOffset + 1) | 0] = 0;
+    vringDescMem[(descOffset + 2) | 0] = length;
+    vringDescMem[(descOffset + 3) | 0] = 0; // flags = 0 (Device reads)
+    
+    ohn_mfence();
+    
+    // Write Avail Ring
+    let wordIndex = ringIndex >>> 1;
+    let isUpper = (ringIndex & 1) !== 0;
+    
+    let currentWord = vringAvailMem[(wordIndex + 1) | 0] | 0;
+    if (isUpper) {
+        currentWord = (currentWord & 0x0000FFFF) | (ringIndex << 16);
+    } else {
+        currentWord = (currentWord & 0xFFFF0000) | (ringIndex & 0xFFFF);
+    }
+    vringAvailMem[(wordIndex + 1) | 0] = currentWord;
+    
+    ohn_mfence();
+    
+    availIdx = (availIdx + 1) & 0xFFFF;
+    stateMem[7] = availIdx;
+    
+    let flagsIdx = vringAvailMem[0] | 0;
+    flagsIdx = (flagsIdx & 0x0000FFFF) | (availIdx << 16);
+    vringAvailMem[0] = flagsIdx;
+    
+    ohn_mfence();
+    ohn_virtio_tx_kick(ioBase, 1);
+}
+
 // ── kernelMain: self-contained kernel entry point ─────────────────────────
-// Banner is written by boot.c before calling us.
-// We only handle the interactive keyboard polling loop.
 function kernelMain() {
     ohn_vgaClearScreen();
 
+    let stateMem = 0x600000;
+    stateMem[0] = 0; // fastLaneHead
+    stateMem[1] = 0; // fastLaneTail
+    stateMem[2] = 0; // rxLastUsedIdx
+    stateMem[3] = 256; // rxAvailIdx
+    stateMem[7] = 0; // txAvailIdx
+    stateMem[11] = 0x400000; // nextTxBufferAddr (TX pool starts above RX pool at 0x300000+512K)
+
+    let ioBasePacked = findVirtioNetworkCard();
+    if (ioBasePacked !== 0) {
+        let irq_num = (ioBasePacked >>> 24) & 0xFF;
+        let ioBase = ioBasePacked & 0x00FFFFFF;
+        stateMem[4] = ioBase;
+        stateMem[5] = ohn_get_virtio_rings_addr();
+        stateMem[6] = irq_num; // Dynamic IRQ
+        
+        initVirtio(ioBase);
+        
+        let mac0 = ohn_inb((ioBase + 0x14) | 0);
+        let mac1 = ohn_inb((ioBase + 0x15) | 0);
+        let mac2 = ohn_inb((ioBase + 0x16) | 0);
+        let mac3 = ohn_inb((ioBase + 0x17) | 0);
+        let mac4 = ohn_inb((ioBase + 0x18) | 0);
+        let mac5 = ohn_inb((ioBase + 0x19) | 0);
+        stateMem[8] = ((mac0 << 24) | (mac1 << 16) | (mac2 << 8) | mac3) >>> 0;
+        stateMem[9] = ((mac4 << 24) | (mac5 << 16)) >>> 0;
+        
+        // Print MAC to serial
+        ohn_outb(0x3F8, 77); // M
+        ohn_outb(0x3F8, 65); // A
+        ohn_outb(0x3F8, 67); // C
+        ohn_outb(0x3F8, 58); // :
+        let arr = stateMem; // just reuse to read bytes easily
+        let m0 = mac0; let m1 = mac1; let m2 = mac2; let m3 = mac3; let m4 = mac4; let m5 = mac5;
+        let p_m = m0;
+        let h1 = (p_m >>> 4) & 0xF; let h2 = p_m & 0xF;
+        if (h1 < 10) { ohn_outb(0x3F8, (48 + h1) | 0); } else { ohn_outb(0x3F8, (55 + h1) | 0); }
+        if (h2 < 10) { ohn_outb(0x3F8, (48 + h2) | 0); } else { ohn_outb(0x3F8, (55 + h2) | 0); }
+        ohn_outb(0x3F8, 10);
+
+        // Read queue size for serial diagnostic
+        ohn_outw((ioBase + 14) | 0, 0); // Select Queue 0 (RX)
+        let qsize = ohn_inw((ioBase + 12) | 0);
+        ohn_outb(0x3F8, 81); // Q
+        ohn_outb(0x3F8, 83); // S
+        ohn_outb(0x3F8, 58); // :
+        let qs1 = (qsize / 100) | 0;
+        let qs2 = ((qsize - (qs1 * 100)) / 10) | 0;
+        let qs3 = (qsize - (qs1 * 100) - (qs2 * 10)) | 0;
+        ohn_outb(0x3F8, (48 + qs1) | 0);
+        ohn_outb(0x3F8, (48 + qs2) | 0);
+        ohn_outb(0x3F8, (48 + qs3) | 0);
+        ohn_outb(0x3F8, 10);
+
+        // Send a gratuitous ARP to announce ourselves.
+        // This forces SLIRP to respond, delivering the first packet into our
+        // now-ready RX ring and breaking the boot timing deadlock.
+        let gratArpBuf = stateMem[11] | 0;
+        stateMem[11] = (gratArpBuf + 2048) | 0; // bump allocator
+
+        // Mailbox: write inputs for sendGratuitousArp into stateMem[12-14]
+        stateMem[12] = gratArpBuf;
+        stateMem[13] = stateMem[5] | 0; // ringsPA
+        stateMem[14] = ioBase;
+        kernel_sendGratuitousArp(0, 0, 0);
+
+        
+        // Write IRQ to serial (e.g. 'I', 'R', 'Q', ':', ' ', '1', '1', '\n')
+        ohn_outb(0x3F8, 73); // I
+        ohn_outb(0x3F8, 82); // R
+        ohn_outb(0x3F8, 81); // Q
+        ohn_outb(0x3F8, 58); // :
+        let irq_tens = (irq_num / 10) | 0;
+        let irq_ones = (irq_num - (irq_tens * 10)) | 0;
+        ohn_outb(0x3F8, (irq_tens + 48) | 0);
+        ohn_outb(0x3F8, (irq_ones + 48) | 0);
+        ohn_outb(0x3F8, 10); // \n
+        
+        ohn_vgaWriteChar(0, 86, 14); // V
+        ohn_vgaWriteChar(1, 73, 14); // I
+        ohn_vgaWriteChar(2, 82, 14); // R
+        ohn_vgaWriteChar(3, 84, 14); // T
+        ohn_vgaWriteChar(4, 73, 14); // I
+        ohn_vgaWriteChar(5, 79, 14); // O
+        ohn_vgaWriteChar(7, 79, 10); // O
+        ohn_vgaWriteChar(8, 75, 10); // K
+    }
+
+    ohn_sti(); // Enable Hardware Interrupts
+
+    // Boot milestone: print 'STI' to serial for automated verification
+    ohn_outb(0x3F8, 83); // S
+    ohn_outb(0x3F8, 84); // T
+    ohn_outb(0x3F8, 73); // I
+    ohn_outb(0x3F8, 10); // \n
+
     let cursorRow = 2;
     let cursorCol = 0;
-    let lastCode = 0;
+    let fastLane = 0x500000;
 
-    // The Interactive Typing Loop
+    // The Bare-Metal Node.js-style Event Loop (Bottom Half)
+    let ringsPA = stateMem[5] | 0;
+    let heartbeat = 0;
     while (1) {
-        // Poll PS/2 Controller Status Register (Port 0x64)
-        // Bit 0 indicates output buffer status (1 = data ready)
-        let status = ohn_inb(0x64);
-        if ((status & 1) !== 0) {
-            // Read scancode from Data Port (Port 0x60)
-            let scancode = ohn_inb(0x60);
-            
-            // Only process key presses (key releases have high bit set, >= 0x80)
-            if (scancode < 0x80) {
-                if (scancode !== lastCode) {
-                    lastCode = scancode; // Basic debounce/repeat tracking
-                    
-                    let ascii = scancodeToAscii(scancode);
-                    if (ascii !== 0) {
-                        if (ascii === 115) { // 's' (run sort demo)
-                            demoSort();
-                        } else if (ascii === 99) { // 'c' (clear screen)
-                            ohn_vgaClearScreen();
-                            cursorRow = 2;
-                            cursorCol = 0;
-                        } else if (ascii === 10) { // Enter
-                            cursorRow = (cursorRow + 1) | 0;
-                            cursorCol = 0;
-                        } else if (ascii === 8) { // Backspace
-                            if (cursorCol > 0) {
-                                cursorCol = (cursorCol - 1) | 0;
-                                const off = ((cursorRow * 80) + cursorCol) | 0;
-                                ohn_vgaWriteChar(off, 32, 10); // Clear char with space
-                            } else if (cursorRow > 2) {
-                                cursorRow = (cursorRow - 1) | 0;
-                                cursorCol = 79;
-                                const off = ((cursorRow * 80) + cursorCol) | 0;
-                                ohn_vgaWriteChar(off, 32, 10); // Clear char with space
-                            }
-                        } else { // Printable
-                            const off = ((cursorRow * 80) + cursorCol) | 0;
-                            ohn_vgaWriteChar(off, ascii, 10); // Green typing color (10)
-                            
-                            cursorCol = (cursorCol + 1) | 0;
-                            if (cursorCol >= 80) {
-                                cursorCol = 0;
-                                cursorRow = (cursorRow + 1) | 0;
-                            }
-                        }
+        let irq = ohn_poll_interrupt();
 
-                        // Screen wrap around
-                        if (cursorRow >= 25) {
-                            ohn_vgaClearScreen();
-                            cursorRow = 2;
-                            cursorCol = 0;
-                        }
-                    }
+        heartbeat = (heartbeat + 1) | 0;
+        if (heartbeat === 100000) {
+            heartbeat = 0;
+            let vringUsedMem = (ringsPA + 8192) | 0;
+            let flagsIdx = vringUsedMem[0] | 0;
+            let usedIdx = (flagsIdx >>> 16) & 0xFFFF;
+            
+            ohn_outb(0x3F8, 85); // U
+            ohn_outb(0x3F8, 58); // :
+            let u1 = (usedIdx / 100) | 0;
+            let u2 = ((usedIdx - (u1 * 100)) / 10) | 0;
+            let u3 = (usedIdx - (u1 * 100) - (u2 * 10)) | 0;
+            ohn_outb(0x3F8, (48 + u1) | 0);
+            ohn_outb(0x3F8, (48 + u2) | 0);
+            ohn_outb(0x3F8, (48 + u3) | 0);
+            ohn_outb(0x3F8, 10);
+
+            // PERIODIC RX KICK: Wake QEMU's SLIRP backend if it stalled.
+            // If an early DHCP/RA packet arrived before DRIVER_OK, QEMU put the
+            // RX backend to sleep. This kick forces qemu_flush_queued_packets()
+            // to re-evaluate can_receive() and deliver any buffered packets.
+            // Kicking an already-awake queue is a harmless no-op.
+            ohn_virtio_rx_kick(stateMem[4] | 0, 0);
+        }
+
+        // FOH (Producer)
+        if (irq === stateMem[6]) {
+            ohn_outb(0x3F8, 33); // '!' to serial port on any VirtIO interrupt
+            ohn_ext_dump_rings(0, 0); // Dump ring state from C
+            
+            let base = stateMem[4] | 0;
+            let rings = stateMem[5] | 0;
+            let isr = ohn_inb((base + 19) | 0); // Check if VirtIO had work (C handler already deasserted)
+            
+            // Print 'N' when IRQ 11 fires
+            let off = ((cursorRow * 80) + cursorCol) | 0;
+            ohn_vgaWriteChar(off, 78, 11); // 'N'
+            cursorCol = (cursorCol + 1) | 0;
+            
+            let vringUsedMem = (rings + 8192) | 0;
+            let usedFlagsIdx = vringUsedMem[0] | 0;
+            let usedIdx = (usedFlagsIdx >>> 16) & 0xFFFF;
+            let lastUsedIdx = stateMem[2] | 0;
+            
+
+            while (lastUsedIdx !== usedIdx) {
+                let ringIndex = lastUsedIdx & 255;
+                let elemId = vringUsedMem[((ringIndex * 2) + 1) | 0] | 0;
+                let packetAddr = (0x300000 + (elemId * 2048)) | 0;
+                
+                // VirtIO Net Header = 10 bytes
+                // Ethernet Header = 14 bytes
+                // IPv4 starts at byte 24.
+                // Ohnrscript arrays are 32-bit (4-byte words).
+                // Word 6 = Bytes 24, 25, 26, 27. Byte 24 (IPv4 IHL) is lowest 8 bits.
+                // Word 8 = Bytes 32, 33, 34, 35. Byte 33 (TCP Protocol) is bits 8-15.
+                
+                // [AUDIT FIX 1] Hex dump block removed — it called broken
+                // extern kernel_readUint8 (i32 args, callee expects i64)
+                // 32 times per packet, crashing the stack before the TCP
+                // classifier at line 554 could ever run.
+                
+                // EtherType is at bytes 22, 23 (10 VirtIO + 12 MACs)
+                let ethertype0 = kfoh_readUint8(packetAddr, 22);
+                let ethertype1 = kfoh_readUint8(packetAddr, 23);
+                let isArp = (ethertype0 === 0x08) && (ethertype1 === 0x06);
+                let isIpv4 = (ethertype0 === 0x08) && (ethertype1 === 0x00);
+                
+                let isTcp = false;
+                if (isIpv4) {
+                    let protocol = kfoh_readUint8(packetAddr, 33); // 24 + 9
+                    isTcp = (protocol === 6);
                 }
-            } else {
-                // Key released
-                if ((scancode - 0x80) === lastCode) {
-                    lastCode = 0;
+                
+                if (isIpv4 && isTcp) {
+                    ohn_outb(0x3F8, 64); // '@' = TCP classified into FastLane
+                    let head = stateMem[0] | 0;
+                    fastLane[head & 255] = elemId;
+                    stateMem[0] = (head + 1) | 0;
+                } else if (isArp) {
+                    stateMem[12] = packetAddr;
+                    stateMem[13] = base;
+                    stateMem[14] = rings;
+                    kernel_handleArpRequest(0, 0, 0);
+                    recycleRxDescriptor(elemId, rings, base);
+                } else {
+                    // Mailbox: getBaseOffset is cross-module but only used here.
+                    // handleBufferProvenance is a stub, but Mailbox it for correctness.
+                    stateMem[12] = packetAddr;
+                    ohn_handleBufferProvenance(0);
+                    recycleRxDescriptor(elemId, rings, base);
+                }
+                lastUsedIdx = (lastUsedIdx + 1) & 0xFFFF;
+            }
+            stateMem[2] = lastUsedIdx;
+        } else if (irq === 1) {
+            let scancode = ohn_inb(0x60);
+            if (scancode < 0x80) {
+                let ascii = scancodeToAscii(scancode);
+                if (ascii !== 0) {
+                    let off = ((cursorRow * 80) + cursorCol) | 0;
+                    ohn_vgaWriteChar(off, ascii, 10);
+                    cursorCol = (cursorCol + 1) | 0;
                 }
             }
         }
-    }
+        
+        // ISR read moved to C handler (boot.c irq11_handler) to prevent
+        // level-triggered interrupt storm. The C handler deasserts the line
+        // before EOI, so the main thread is no longer starved.
 
+        
+        if (cursorCol >= 80) {
+            cursorCol = 0;
+            cursorRow = (cursorRow + 1) | 0;
+        }
+        if (cursorRow >= 25) {
+            ohn_vgaClearScreen();
+            cursorRow = 2;
+            cursorCol = 0;
+        }
+
+        // BOH (Consumer)
+        let head = stateMem[0] | 0;
+        let tail = stateMem[1] | 0;
+        if (head !== tail) {
+            ohn_outb(0x3F8, 35); // '#' = BOH consuming from FastLane
+            let elemId = fastLane[tail & 255] | 0;
+            let packetAddr = (0x300000 + (elemId * 2048)) | 0;
+            
+            // Mailbox Protocol: write input, call, read return
+            stateMem[12] = packetAddr;
+            ohn_handleTcpPacket(0, 0);
+            let txBufferPA = stateMem[30] | 0;
+            
+            if (txBufferPA !== 0) {
+                // [AUDIT FIX 3] Was calling broken extern kernel_readUint16_BE
+                // (i32 args, callee expects i64). Replaced with local kfoh_readUint8.
+                let packetMem = txBufferPA;
+                let ipByte2 = kfoh_readUint8(packetMem, 26);
+                let ipByte3 = kfoh_readUint8(packetMem, 27);
+                let ipv4Len = ((ipByte2 << 8) | ipByte3) >>> 0;
+                let packetLength = (24 + ipv4Len) | 0; // 10 VirtIO + 14 Eth + IPv4
+                
+                // Mailbox Protocol: write TX arguments to stateMem, ring the bell
+                let boh_txRingsPA = (stateMem[5] + 16384) | 0;
+                let boh_txAvailPA = (boh_txRingsPA + 4096) | 0;
+                stateMem[20] = boh_txRingsPA;
+                stateMem[21] = txBufferPA;
+                stateMem[22] = packetLength;
+                stateMem[23] = boh_txAvailPA;
+                stateMem[24] = stateMem[4] | 0;
+
+                ohn_ext_push_tx_ring(0, 0, 0, 0, 0); // doorbell — args ignored
+            }
+
+            // Recycle AFTER TX push to prevent zero-copy race condition.
+            // For SYN-ACK (txBufferPA === packetAddr), QEMU must DMA-read
+            // the TX buffer before we tell it to overwrite the RX buffer.
+            recycleRxDescriptor(elemId, stateMem[5] | 0, stateMem[4] | 0);
+            stateMem[1] = (tail + 1) | 0;
+        } else {
+            if (irq === 0) {
+                ohn_hlt();
+            }
+        }
+    }
     return 0;
 }

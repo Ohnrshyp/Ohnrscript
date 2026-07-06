@@ -1,0 +1,319 @@
+'use strict';
+
+// ---------------------------------------------------------
+// LOCAL Helper Functions (inlined from network_parser.ohn)
+// Eliminates cross-module __extern calls which suffer from
+// i32/i64 argument width mismatch at the LLVM IR level.
+// Prefixed with tcp_local_ to avoid linker duplicate symbols.
+// ---------------------------------------------------------
+
+let TCP_VIRTIO_HDR_LEN = 10;
+
+function tcp_local_readUint8(buffer, byteOffset) {
+    let wordIndex = byteOffset >>> 2;
+    let bitShift = (byteOffset & 3) * 8;
+    return (buffer[wordIndex] >>> bitShift) & 0xFF;
+}
+
+function tcp_local_readUint16_BE(buffer, byteOffset) {
+    let b0 = tcp_local_readUint8(buffer, byteOffset);
+    let b1 = tcp_local_readUint8(buffer, (byteOffset + 1) | 0);
+    return ((b0 << 8) | b1) >>> 0;
+}
+
+function tcp_local_readUint32_BE(buffer, byteOffset) {
+    let b0 = tcp_local_readUint8(buffer, byteOffset);
+    let b1 = tcp_local_readUint8(buffer, (byteOffset + 1) | 0);
+    let b2 = tcp_local_readUint8(buffer, (byteOffset + 2) | 0);
+    let b3 = tcp_local_readUint8(buffer, (byteOffset + 3) | 0);
+    return (((b0 << 24) | (b1 << 16) | (b2 << 8) | b3) >>> 0);
+}
+
+function tcp_local_writeUint8(buffer, byteOffset, val) {
+    let wordIndex = byteOffset >>> 2;
+    let bitShift = (byteOffset & 3) * 8;
+    let mask = (0xFF << bitShift) ^ -1;
+    let currentWord = buffer[wordIndex] | 0;
+    buffer[wordIndex] = (currentWord & mask) | ((val & 0xFF) << bitShift);
+}
+
+function tcp_local_writeUint16_BE(buffer, byteOffset, val) {
+    tcp_local_writeUint8(buffer, byteOffset, val >>> 8);
+    tcp_local_writeUint8(buffer, (byteOffset + 1) | 0, val);
+}
+
+function tcp_local_writeUint32_BE(buffer, byteOffset, val) {
+    tcp_local_writeUint8(buffer, byteOffset, val >>> 24);
+    tcp_local_writeUint8(buffer, (byteOffset + 1) | 0, val >>> 16);
+    tcp_local_writeUint8(buffer, (byteOffset + 2) | 0, val >>> 8);
+    tcp_local_writeUint8(buffer, (byteOffset + 3) | 0, val);
+}
+
+function tcp_local_getBaseOffset(buffer) {
+    let tpid_offset = (TCP_VIRTIO_HDR_LEN + 12) | 0;
+    let b0 = tcp_local_readUint8(buffer, tpid_offset);
+    let b1 = tcp_local_readUint8(buffer, (tpid_offset + 1) | 0);
+    let tpid = ((b0 << 8) | b1) >>> 0;
+    
+    if (tpid === 0x8100) {
+        return (TCP_VIRTIO_HDR_LEN + 18) | 0;
+    }
+    return (TCP_VIRTIO_HDR_LEN + 14) | 0;
+}
+
+function tcp_local_getVlanId(buffer) {
+    let tpid_offset = (TCP_VIRTIO_HDR_LEN + 12) | 0;
+    let b0 = tcp_local_readUint8(buffer, tpid_offset);
+    let b1 = tcp_local_readUint8(buffer, (tpid_offset + 1) | 0);
+    let tpid = ((b0 << 8) | b1) >>> 0;
+    
+    if (tpid === 0x8100) {
+        let tci_offset = (TCP_VIRTIO_HDR_LEN + 14) | 0;
+        let c0 = tcp_local_readUint8(buffer, tci_offset);
+        let c1 = tcp_local_readUint8(buffer, (tci_offset + 1) | 0);
+        let tci = ((c0 << 8) | c1) >>> 0;
+        return tci & 0x0FFF;
+    }
+    return 0;
+}
+
+function tcp_local_calculateIpv4Checksum(buffer, baseOffset) {
+    tcp_local_writeUint8(buffer, baseOffset + 10, 0);
+    tcp_local_writeUint8(buffer, baseOffset + 11, 0);
+    
+    let sum = 0;
+    let i = 0;
+    while (i < 20) {
+        let b0 = tcp_local_readUint8(buffer, baseOffset + i);
+        let b1 = tcp_local_readUint8(buffer, baseOffset + i + 1);
+        let val = ((b0 << 8) | b1) >>> 0;
+        sum = (sum + val) | 0;
+        i = (i + 2) | 0;
+    }
+
+    // Carry fold: keep sum in unsigned 16-bit range to avoid infinite loop
+    // on signed i32 overflow (sum|0 can go negative; >>> 16 of negative != 0)
+    sum = sum & 0xFFFFFFFF;
+    while ((sum >>> 16) !== 0) {
+        sum = ((sum & 0xFFFF) + (sum >>> 16)) & 0xFFFFFFFF;
+    }
+
+    return (sum ^ 0xFFFF) & 0xFFFF;
+}
+
+function tcp_local_calculateTcpChecksum(buffer, baseOffset, tcpLength) {
+    let sum = 0;
+    
+    let srcIpHigh = (tcp_local_readUint8(buffer, baseOffset + 12) << 8) | tcp_local_readUint8(buffer, baseOffset + 13);
+    let srcIpLow = (tcp_local_readUint8(buffer, baseOffset + 14) << 8) | tcp_local_readUint8(buffer, baseOffset + 15);
+    let dstIpHigh = (tcp_local_readUint8(buffer, baseOffset + 16) << 8) | tcp_local_readUint8(buffer, baseOffset + 17);
+    let dstIpLow = (tcp_local_readUint8(buffer, baseOffset + 18) << 8) | tcp_local_readUint8(buffer, baseOffset + 19);
+    
+    sum = (sum + srcIpHigh) | 0;
+    sum = (sum + srcIpLow) | 0;
+    sum = (sum + dstIpHigh) | 0;
+    sum = (sum + dstIpLow) | 0;
+    
+    sum = (sum + 6) | 0;
+    sum = (sum + tcpLength) | 0;
+    
+    let tcpOffset = (baseOffset + 20) | 0;
+    tcp_local_writeUint8(buffer, tcpOffset + 16, 0);
+    tcp_local_writeUint8(buffer, tcpOffset + 17, 0);
+    
+    let i = 0;
+    while (i < tcpLength) {
+        let val1 = tcp_local_readUint8(buffer, tcpOffset + i);
+        let val2 = 0;
+        if (((i + 1) | 0) < tcpLength) {
+            val2 = tcp_local_readUint8(buffer, tcpOffset + i + 1);
+        }
+        sum = (sum + ((val1 << 8) | val2)) | 0;
+        i = (i + 2) | 0;
+    }
+    
+    // Carry fold: keep sum in unsigned 16-bit range to avoid infinite loop
+    // on signed i32 overflow (sum|0 can go negative; >>> 16 of negative != 0)
+    sum = sum & 0xFFFFFFFF;
+    while ((sum >>> 16) !== 0) {
+        sum = ((sum & 0xFFFF) + (sum >>> 16)) & 0xFFFFFFFF;
+    }
+    
+    return (sum ^ 0xFFFF) & 0xFFFF;
+}
+
+// ---------------------------------------------------------
+// TCP State Constants
+// ---------------------------------------------------------
+
+// TCP state memory (at 0x680000, above stateMem).
+const TCP_STATE_BASE = 0x680000;
+
+const TX_POOL_BASE = 0x400000;
+let txPoolIndex = 0;
+
+// Diagnostic serial output — module-level extern, matching compiler expectations.
+const tcp_outb = __extern('outb');
+
+// Minimalist TCP State Machine Array
+// [State, VlanId, RemoteIp, RemotePort, LocalSeq, RemoteSeq]
+let tcpState = new Int32Array(64);
+
+// ---------------------------------------------------------
+// VirtIO Rx/Tx Ring Packet Handler
+// ---------------------------------------------------------
+// MAILBOX PROTOCOL: Function arguments are IGNORED.
+// Input:  stateMem[12] = buffer/physicalAddr (zero-copy: same address)
+// Output: stateMem[30] = physicalAddr to transmit (0 = drop/recycle)
+export function handleTcpPacket(unused0, unused1) {
+    let stateMem = 0x600000;
+    let buffer = stateMem[12] | 0;
+    let physicalAddr = buffer; // zero-copy: same address
+
+    // Temp diagnostic: 'T' = entered handleTcpPacket
+    tcp_outb(0x3F8, 84); // T
+
+    // 1. Endianness & Dynamic VLAN Parsing
+    let baseOffset = tcp_local_getBaseOffset(buffer);
+    let vlanId = tcp_local_getVlanId(buffer);
+    
+    let remoteIp = tcp_local_readUint32_BE(buffer, baseOffset + 12);
+    let remotePort = tcp_local_readUint16_BE(buffer, baseOffset + 20);
+    let incomingSeq = tcp_local_readUint32_BE(buffer, baseOffset + 24);
+    
+    let flags = tcp_local_readUint8(buffer, baseOffset + 33);
+    let isSyn = (flags & 0x02) !== 0;
+    let isAck = (flags & 0x10) !== 0;
+
+    // 2. TCP Sequence Arithmetic (The Wrap-Around Fix)
+    let expectedSeq = tcpState[5] | 0;
+    let isNewer = ((incomingSeq - expectedSeq) | 0) >= 0;
+    
+    if (!isNewer && !isSyn) {
+        stateMem[30] = 0;
+        return 0; 
+    }
+
+    if (isSyn) {
+        tcp_outb(0x3F8, 83); // S = SYN detected
+        // State: SYN_RECEIVED
+        tcpState[0] = 1; 
+        tcpState[1] = vlanId;
+        tcpState[2] = remoteIp;
+        tcpState[3] = remotePort;
+        tcpState[4] = 1000; // Our Initial Sequence Number (ISN)
+        tcpState[5] = (incomingSeq + 1) | 0;
+        tcp_outb(0x3F8, 49); // '1' = state written
+
+        // 3. Control Packets: In-Place Mutation (Zero-Copy)
+        tcp_local_swapMacAddresses(buffer);
+        tcp_outb(0x3F8, 50); // '2' = MAC swap done
+        tcp_local_swapIpAddresses(buffer, baseOffset);
+        tcp_outb(0x3F8, 51); // '3' = IP swap done
+        tcp_local_swapPorts(buffer, baseOffset);
+        tcp_outb(0x3F8, 52); // '4' = port swap done
+
+        // Set SYN-ACK Flags
+        tcp_local_writeUint8(buffer, baseOffset + 33, 0x12); 
+        
+        // Write new Sequence Numbers
+        tcp_local_writeUint32_BE(buffer, baseOffset + 24, tcpState[4]); // Seq
+        tcp_local_writeUint32_BE(buffer, baseOffset + 28, tcpState[5]); // Ack
+        tcp_outb(0x3F8, 53); // '5' = seq/ack written
+
+        // 4. L3 vs L4 Checksum Delegation
+        let ipChecksum = tcp_local_calculateIpv4Checksum(buffer, baseOffset);
+        tcp_local_writeUint16_BE(buffer, baseOffset + 10, ipChecksum);
+        tcp_outb(0x3F8, 54); // '6' = IP checksum done
+
+        // Calculate total TCP length (IPv4 length - 20 bytes of IP header)
+        let ipv4Len = (tcp_local_readUint8(buffer, baseOffset + 2) << 8) | tcp_local_readUint8(buffer, baseOffset + 3);
+        let tcpLength = (ipv4Len - 20) | 0;
+
+        // Safety guard: if tcpLength is garbage, bail rather than infinite-loop
+        if (tcpLength <= 0 || tcpLength > 1460) {
+            tcp_outb(0x3F8, 63); // '?' = bad tcpLength, aborting
+            tcp_outb(0x3F8, 10);
+            stateMem[30] = 0;
+            return 0;
+        }
+
+        // Manual TCP Checksum
+        let tcpChecksum = tcp_local_calculateTcpChecksum(buffer, baseOffset, tcpLength);
+        tcp_local_writeUint16_BE(buffer, baseOffset + 36, tcpChecksum);
+        tcp_outb(0x3F8, 55); // '7' = TCP checksum done
+        
+        // Disable VirtIO checksum offload
+        tcp_local_writeUint8(buffer, 0, 0);
+        
+        // Return the exact same Rx physical pointer for transmission (Zero Copy)
+        tcp_outb(0x3F8, 88); // X = TX return
+        tcp_outb(0x3F8, 10); // newline
+        stateMem[30] = physicalAddr;
+        return 0; 
+    }
+
+    if (isAck && tcp_local_hasPayload(buffer, baseOffset)) {
+        let txBufferAddr = (TX_POOL_BASE + (txPoolIndex * 2048)) | 0;
+        txPoolIndex = (txPoolIndex + 1) | 0;
+        stateMem[30] = txBufferAddr;
+        return 0; 
+    }
+    
+    stateMem[30] = 0;
+    return 0; 
+}
+
+// ---------------------------------------------------------
+// Buffer Provenance Tracking
+// ---------------------------------------------------------
+// MAILBOX PROTOCOL: reads from stateMem[12]
+export function handleBufferProvenance(unused0) {
+    let stateMem = 0x600000;
+    let txUsedAddr = stateMem[12] | 0;
+
+    if (txUsedAddr >= TX_POOL_BASE) {
+        tcp_local_recycleToTxPool(txUsedAddr);
+    } else {
+        tcp_local_recycleToRxRing(txUsedAddr);
+    }
+}
+
+// ---------------------------------------------------------
+// Helpers (local, prefixed to avoid linker collisions)
+// ---------------------------------------------------------
+function tcp_local_swapMacAddresses(buffer) {
+    let i = 0;
+    while (i < 6) {
+        let temp = tcp_local_readUint8(buffer, 10 + i);
+        tcp_local_writeUint8(buffer, 10 + i, tcp_local_readUint8(buffer, 16 + i));
+        tcp_local_writeUint8(buffer, 16 + i, temp);
+        i = (i + 1) | 0;
+    }
+}
+
+function tcp_local_swapIpAddresses(buffer, baseOffset) {
+    let i = 0;
+    while (i < 4) {
+        let temp = tcp_local_readUint8(buffer, baseOffset + 12 + i);
+        tcp_local_writeUint8(buffer, baseOffset + 12 + i, tcp_local_readUint8(buffer, baseOffset + 16 + i));
+        tcp_local_writeUint8(buffer, baseOffset + 16 + i, temp);
+        i = (i + 1) | 0;
+    }
+}
+
+function tcp_local_swapPorts(buffer, baseOffset) {
+    let temp1 = tcp_local_readUint8(buffer, baseOffset + 20);
+    let temp2 = tcp_local_readUint8(buffer, baseOffset + 21);
+    tcp_local_writeUint8(buffer, baseOffset + 20, tcp_local_readUint8(buffer, baseOffset + 22));
+    tcp_local_writeUint8(buffer, baseOffset + 21, tcp_local_readUint8(buffer, baseOffset + 23));
+    tcp_local_writeUint8(buffer, baseOffset + 22, temp1);
+    tcp_local_writeUint8(buffer, baseOffset + 23, temp2);
+}
+
+function tcp_local_hasPayload(buffer, baseOffset) {
+    return false; // Stub
+}
+
+function tcp_local_recycleToTxPool(addr) {}
+function tcp_local_recycleToRxRing(addr) {}

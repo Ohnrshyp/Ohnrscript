@@ -13,12 +13,27 @@ let QM = 63; // '?' (0x3F)
 let METHOD_GET = 542393671;
 // "POST" -> 0x54534F50 (1414745936)
 let METHOD_POST = 1414745936;
+// LOCAL helper functions — inlined from network_parser.ohn to avoid
+// the i32/i64 __extern ABI mismatch at the LLVM IR cross-module boundary.
+// Prefixed http_local_ to prevent linker duplicate symbol errors.
+function http_local_readUint8(buffer, byteOffset) {
+    let wordIndex = byteOffset >>> 2;
+    let bitShift = (byteOffset & 3) * 8;
+    return (buffer[wordIndex] >>> bitShift) & 0xFF;
+}
 
-const ohn_mem_read_i8 = __extern('sys_mem_read_i8');
-const ohn_mem_read_i32 = __extern('sys_mem_read_i32');
+function http_local_readUint32_LE(buffer, byteOffset) {
+    let b0 = http_local_readUint8(buffer, byteOffset);
+    let b1 = http_local_readUint8(buffer, (byteOffset + 1) | 0);
+    let b2 = http_local_readUint8(buffer, (byteOffset + 2) | 0);
+    let b3 = http_local_readUint8(buffer, (byteOffset + 3) | 0);
+    return ((b3 << 24) | (b2 << 16) | (b1 << 8) | b0) >>> 0;
+}
+
+const http_router_handle = __extern('router_handle');
 
 function http_parse_method(buf_ptr) {
-    let method_int = ohn_mem_read_i32(buf_ptr, 0) | 0;
+    let method_int = http_local_readUint32_LE(buf_ptr, 0) | 0;
     
     if (method_int === METHOD_GET) {
         return 1;
@@ -43,7 +58,7 @@ function http_parse_route_hash(buf_ptr, start_offset, total_bytes) {
     let hash = 5381; // djb2 hash base
     
     while (i < limit) {
-        let b = ohn_mem_read_i8(buf_ptr, i) | 0;
+        let b = http_local_readUint8(buf_ptr, i) | 0;
         
         if (b === SP) {
             parse_result[0] = hash;
@@ -56,7 +71,7 @@ function http_parse_route_hash(buf_ptr, start_offset, total_bytes) {
             // Scan forward to the space
             let j = (i + 1) | 0;
             while (j < limit) {
-                let check_b = ohn_mem_read_i8(buf_ptr, j) | 0;
+                let check_b = http_local_readUint8(buf_ptr, j) | 0;
                 if (check_b === SP) {
                     parse_result[1] = j;
                     return 1; // Success
@@ -84,14 +99,14 @@ function http_find_headers_end(buf_ptr, total_bytes) {
     let limit = (total_bytes - 3) | 0;
 
     while (i < limit) {
-        let b0 = ohn_mem_read_i8(buf_ptr, i) | 0;
+        let b0 = http_local_readUint8(buf_ptr, i) | 0;
         
         if (b0 === CR) {
-            let b1 = ohn_mem_read_i8(buf_ptr, (i + 1) | 0) | 0;
+            let b1 = http_local_readUint8(buf_ptr, (i + 1) | 0) | 0;
             if (b1 === LF) {
-                let b2 = ohn_mem_read_i8(buf_ptr, (i + 2) | 0) | 0;
+                let b2 = http_local_readUint8(buf_ptr, (i + 2) | 0) | 0;
                 if (b2 === CR) {
-                    let b3 = ohn_mem_read_i8(buf_ptr, (i + 3) | 0) | 0;
+                    let b3 = http_local_readUint8(buf_ptr, (i + 3) | 0) | 0;
                     if (b3 === LF) {
                         return (i + 4) | 0; // Header ends, body begins
                     }
@@ -102,4 +117,23 @@ function http_find_headers_end(buf_ptr, total_bytes) {
     }
 
     return -1;
+}
+
+export function http_process_payload(rxBufferAddr, payloadLen, txBufferAddr) {
+    let method = http_parse_method(rxBufferAddr);
+    if (method === 0) return 0;
+    
+    let offset = 4;
+    if (method === 2) {
+        offset = 5;
+    }
+    
+    let result = http_parse_route_hash(rxBufferAddr, offset, payloadLen);
+    if (result !== 1) return 0;
+    
+    let hash = parse_result[0] | 0;
+    
+    // In Ohnrscript, router_handle is globally linked since we compile both files
+    let responseLen = http_router_handle(method, hash, txBufferAddr) | 0;
+    return responseLen;
 }

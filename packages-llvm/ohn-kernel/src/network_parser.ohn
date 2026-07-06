@@ -1,0 +1,425 @@
+'use strict';
+
+// ---------------------------------------------------------
+// Endianness Swapping (Host is Little-Endian, Net is Big-Endian)
+// ---------------------------------------------------------
+export function ntohs(val) {
+    return (((val & 0xFF) << 8) | ((val >> 8) & 0xFF)) >>> 0;
+}
+
+export function htons(val) {
+    return ntohs(val);
+}
+
+export function ntohl(val) {
+    return (((val & 0xFF) << 24) | 
+            ((val & 0xFF00) << 8) | 
+            ((val >> 8) & 0xFF00) | 
+            ((val >> 24) & 0xFF)) >>> 0;
+}
+
+export function htonl(val) {
+    return ntohl(val);
+}
+
+// ---------------------------------------------------------
+// Native Ohnrscript 32-bit Memory Access Abstractions
+// ---------------------------------------------------------
+// Ohnrscript arrays are i32* (32-bit aligned words). 
+// To safely extract bytes without hitting the unaligned endianness trap,
+// we compute the wordIndex and bitShift manually.
+
+export function readUint8(buffer, byteOffset) {
+    let wordIndex = byteOffset >>> 2;
+    let bitShift = (byteOffset & 3) * 8;
+    return (buffer[wordIndex] >>> bitShift) & 0xFF;
+}
+
+export function readUint16_BE(buffer, byteOffset) {
+    let b0 = readUint8(buffer, byteOffset);
+    let b1 = readUint8(buffer, (byteOffset + 1) | 0);
+    return ((b0 << 8) | b1) >>> 0;
+}
+
+export function readUint32_BE(buffer, byteOffset) {
+    let b0 = readUint8(buffer, byteOffset);
+    let b1 = readUint8(buffer, (byteOffset + 1) | 0);
+    let b2 = readUint8(buffer, (byteOffset + 2) | 0);
+    let b3 = readUint8(buffer, (byteOffset + 3) | 0);
+    return (((b0 << 24) | (b1 << 16) | (b2 << 8) | b3) >>> 0);
+}
+
+export function isHttpGet(buffer, byteOffset) {
+    return readUint32_BE(buffer, byteOffset) === 0x47455420; // 'GET '
+}
+
+export function handleArpRequest(unused0, unused1, unused2) {
+    let stateMem = 0x600000;
+
+    // Mailbox: read actual inputs from stateMem[12-14]
+    let packetAddr = stateMem[12] | 0;
+    let ioBase = stateMem[13] | 0;
+    let ringsPA = stateMem[14] | 0;
+    
+    // Check if it's an ARP Request (Operation = 1). Opcode is at 20 + 10 = 30
+    let op0 = readUint8(packetAddr, 30);
+    let op1 = readUint8(packetAddr, 31);
+    let operation = (op0 << 8) | op1;
+    
+    if (operation !== 1) {
+        return 0; // Not a request
+    }
+    
+    // Allocate a 70-byte buffer for the TX ring (10 VirtIO + 60 Raw Eth)
+    let txBufferPA = stateMem[11] | 0; // nextTxBufferAddr
+    stateMem[11] = (txBufferPA + 2048) | 0; // bump allocator
+    
+    // Zero out the entire 70-byte buffer
+    let txMem = txBufferPA; // i32 pointer
+    let i = 0;
+    while (i < 18) { // 18 words * 4 = 72 bytes (covers 70)
+        txMem[i] = 0;
+        i = (i + 1) | 0;
+    }
+    
+    // Ethernet Header (starts at offset 10)
+    // Dest MAC: QEMU's Sender MAC (RX offset 32)
+    writeUint8(txBufferPA, 10, readUint8(packetAddr, 32));
+    writeUint8(txBufferPA, 11, readUint8(packetAddr, 33));
+    writeUint8(txBufferPA, 12, readUint8(packetAddr, 34));
+    writeUint8(txBufferPA, 13, readUint8(packetAddr, 35));
+    writeUint8(txBufferPA, 14, readUint8(packetAddr, 36));
+    writeUint8(txBufferPA, 15, readUint8(packetAddr, 37));
+    
+    // Src MAC: Our dynamic MAC (stateMem[8] and stateMem[9])
+    let macA = stateMem[8] | 0;
+    let macB = stateMem[9] | 0;
+    writeUint8(txBufferPA, 16, (macA >>> 24) & 0xFF);
+    writeUint8(txBufferPA, 17, (macA >>> 16) & 0xFF);
+    writeUint8(txBufferPA, 18, (macA >>> 8) & 0xFF);
+    writeUint8(txBufferPA, 19, macA & 0xFF);
+    writeUint8(txBufferPA, 20, (macB >>> 24) & 0xFF);
+    writeUint8(txBufferPA, 21, (macB >>> 16) & 0xFF);
+    
+    // EtherType (ARP = 0x0806)
+    writeUint16_BE(txBufferPA, 22, 0x0806);
+    
+    // ARP Payload (starts at offset 24)
+    writeUint16_BE(txBufferPA, 24, 0x0001); // Hardware Type: Ethernet
+    writeUint16_BE(txBufferPA, 26, 0x0800); // Protocol Type: IPv4
+    writeUint8(txBufferPA, 28, 6);          // HLEN: 6
+    writeUint8(txBufferPA, 29, 4);          // PLEN: 4
+    writeUint16_BE(txBufferPA, 30, 0x0002); // Operation: ARP Reply
+    
+    // Sender MAC: Our dynamic MAC
+    writeUint8(txBufferPA, 32, (macA >>> 24) & 0xFF);
+    writeUint8(txBufferPA, 33, (macA >>> 16) & 0xFF);
+    writeUint8(txBufferPA, 34, (macA >>> 8) & 0xFF);
+    writeUint8(txBufferPA, 35, macA & 0xFF);
+    writeUint8(txBufferPA, 36, (macB >>> 24) & 0xFF);
+    writeUint8(txBufferPA, 37, (macB >>> 16) & 0xFF);
+    
+    // Sender IP: Our IP (10.0.2.15)
+    writeUint8(txBufferPA, 38, 10);
+    writeUint8(txBufferPA, 39, 0);
+    writeUint8(txBufferPA, 40, 2);
+    writeUint8(txBufferPA, 41, 15);
+    
+    // Target MAC: QEMU's Sender MAC (RX offset 32)
+    writeUint8(txBufferPA, 42, readUint8(packetAddr, 32));
+    writeUint8(txBufferPA, 43, readUint8(packetAddr, 33));
+    writeUint8(txBufferPA, 44, readUint8(packetAddr, 34));
+    writeUint8(txBufferPA, 45, readUint8(packetAddr, 35));
+    writeUint8(txBufferPA, 46, readUint8(packetAddr, 36));
+    writeUint8(txBufferPA, 47, readUint8(packetAddr, 37));
+    
+    // Target IP: QEMU's Sender IP (RX offset 38)
+    writeUint8(txBufferPA, 48, readUint8(packetAddr, 38));
+    writeUint8(txBufferPA, 49, readUint8(packetAddr, 39));
+    writeUint8(txBufferPA, 50, readUint8(packetAddr, 40));
+    writeUint8(txBufferPA, 51, readUint8(packetAddr, 41));
+    
+    // Mailbox Protocol: write TX arguments to stateMem[20-24], then ring the bell.
+    // This bypasses the LLVM IR i32/i64 ABI mismatch by carrying data through
+    // the neutral-ground stateMem region instead of function arguments.
+    let txRingsPA = (ringsPA + 16384) | 0;
+    let txAvailPA = (txRingsPA + 4096) | 0;
+    stateMem[20] = txRingsPA;      // TX descriptor table PA
+    stateMem[21] = txBufferPA;     // buffer PA
+    stateMem[22] = 70;             // length (10 virtio_net_hdr + 14 eth + 28 ARP + padding)
+    stateMem[23] = txAvailPA;      // TX avail ring PA
+    stateMem[24] = ioBase;         // VirtIO I/O port base
+
+    let ext_push_tx_ring_fn = __extern('ext_push_tx_ring');
+    ext_push_tx_ring_fn(0, 0, 0, 0, 0); // doorbell — args ignored
+
+    return 0;
+}
+
+
+export function readUint32_LE(buffer, byteOffset) {
+    let b0 = readUint8(buffer, byteOffset);
+    let b1 = readUint8(buffer, (byteOffset + 1) | 0);
+    let b2 = readUint8(buffer, (byteOffset + 2) | 0);
+    let b3 = readUint8(buffer, (byteOffset + 3) | 0);
+    return ((b3 << 24) | (b2 << 16) | (b1 << 8) | b0) >>> 0;
+}
+
+export function writeUint8(buffer, byteOffset, val) {
+    let wordIndex = byteOffset >>> 2;
+    let bitShift = (byteOffset & 3) * 8;
+    let mask = (0xFF << bitShift) ^ -1;
+    let currentWord = buffer[wordIndex] | 0;
+    buffer[wordIndex] = (currentWord & mask) | ((val & 0xFF) << bitShift);
+}
+
+export function writeUint16_BE(buffer, byteOffset, val) {
+    writeUint8(buffer, byteOffset, val >>> 8);
+    writeUint8(buffer, (byteOffset + 1) | 0, val);
+}
+
+export function writeUint32_BE(buffer, byteOffset, val) {
+    writeUint8(buffer, byteOffset, val >>> 24);
+    writeUint8(buffer, (byteOffset + 1) | 0, val >>> 16);
+    writeUint8(buffer, (byteOffset + 2) | 0, val >>> 8);
+    writeUint8(buffer, (byteOffset + 3) | 0, val);
+}
+
+// ---------------------------------------------------------
+// 802.1Q VLAN Parsing
+// ---------------------------------------------------------
+let VIRTIO_HDR_LEN = 10;
+
+export function getBaseOffset(buffer) {
+    let tpid_offset = (VIRTIO_HDR_LEN + 12) | 0;
+    let b0 = readUint8(buffer, tpid_offset);
+    let b1 = readUint8(buffer, (tpid_offset + 1) | 0);
+    let tpid = ((b0 << 8) | b1) >>> 0;
+    
+    if (tpid === 0x8100) {
+        return (VIRTIO_HDR_LEN + 18) | 0; // 10 VirtIO + 14 Eth + 4 VLAN
+    }
+    return (VIRTIO_HDR_LEN + 14) | 0; // 10 VirtIO + 14 Eth
+}
+
+export function getVlanId(buffer) {
+    let tpid_offset = (VIRTIO_HDR_LEN + 12) | 0;
+    let b0 = readUint8(buffer, tpid_offset);
+    let b1 = readUint8(buffer, (tpid_offset + 1) | 0);
+    let tpid = ((b0 << 8) | b1) >>> 0;
+    
+    if (tpid === 0x8100) {
+        let tci_offset = (VIRTIO_HDR_LEN + 14) | 0;
+        let c0 = readUint8(buffer, tci_offset);
+        let c1 = readUint8(buffer, (tci_offset + 1) | 0);
+        let tci = ((c0 << 8) | c1) >>> 0;
+        return tci & 0x0FFF;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------
+// IPv4 Manual Checksum
+// ---------------------------------------------------------
+export function calculateIpv4Checksum(buffer, baseOffset) {
+    // Zero out the existing checksum field (bytes 10 and 11 of the IP header)
+    writeUint8(buffer, baseOffset + 10, 0);
+    writeUint8(buffer, baseOffset + 11, 0);
+    
+    let sum = 0;
+    let i = 0;
+    while (i < 20) {
+        let b0 = readUint8(buffer, baseOffset + i);
+        let b1 = readUint8(buffer, baseOffset + i + 1);
+        let val = ((b0 << 8) | b1) >>> 0;
+        sum = (sum + val) | 0;
+        i = (i + 2) | 0;
+    }
+
+    while ((sum >>> 16) !== 0) {
+        sum = ((sum & 0xFFFF) + (sum >>> 16)) | 0;
+    }
+
+    return (sum ^ 0xFFFF) & 0xFFFF;
+}
+
+export function calculateTcpChecksum(buffer, baseOffset, tcpLength) {
+    let sum = 0;
+    
+    // Pseudo-header: Source IP and Dest IP (offset 12 to 19 of IPv4)
+    let srcIpHigh = (readUint8(buffer, baseOffset + 12) << 8) | readUint8(buffer, baseOffset + 13);
+    let srcIpLow = (readUint8(buffer, baseOffset + 14) << 8) | readUint8(buffer, baseOffset + 15);
+    let dstIpHigh = (readUint8(buffer, baseOffset + 16) << 8) | readUint8(buffer, baseOffset + 17);
+    let dstIpLow = (readUint8(buffer, baseOffset + 18) << 8) | readUint8(buffer, baseOffset + 19);
+    
+    sum = (sum + srcIpHigh) | 0;
+    sum = (sum + srcIpLow) | 0;
+    sum = (sum + dstIpHigh) | 0;
+    sum = (sum + dstIpLow) | 0;
+    
+    // Pseudo-header: Protocol (6) and TCP Length
+    sum = (sum + 6) | 0;
+    sum = (sum + tcpLength) | 0;
+    
+    // TCP header and payload
+    let tcpOffset = (baseOffset + 20) | 0;
+    // Zero out existing checksum
+    writeUint8(buffer, tcpOffset + 16, 0);
+    writeUint8(buffer, tcpOffset + 17, 0);
+    
+    let i = 0;
+    while (i < tcpLength) {
+        let val1 = readUint8(buffer, tcpOffset + i);
+        let val2 = 0;
+        if (((i + 1) | 0) < tcpLength) {
+            val2 = readUint8(buffer, tcpOffset + i + 1);
+        }
+        sum = (sum + ((val1 << 8) | val2)) | 0;
+        i = (i + 2) | 0;
+    }
+    
+    while ((sum >>> 16) !== 0) {
+        sum = ((sum & 0xFFFF) + (sum >>> 16)) | 0;
+    }
+    
+    return (sum ^ 0xFFFF) & 0xFFFF;
+}
+
+// ---------------------------------------------------------
+// General Software Checksum (Pseudo-Header & Protocol)
+// ---------------------------------------------------------
+export function calculateChecksum(buffer, offset, length, initial_accum) {
+    let sum = initial_accum | 0;
+    let i = 0;
+    
+    // Process 16-bit words (Network Byte Order)
+    while (i < length - 1) {
+        let word = readUint16_BE(buffer, offset + i);
+        sum = (sum + word) | 0;
+        i = i + 2;
+    }
+    
+    // Handle odd byte if length is odd
+    if (i < length) {
+        let word = readUint8(buffer, offset + i) << 8;
+        sum = (sum + word) | 0;
+    }
+    
+    // Fold 32-bit into 16-bit with double addition for carry
+    sum = (sum & 0xFFFF) + (sum >>> 16);
+    sum = (sum & 0xFFFF) + (sum >>> 16);
+    
+    // One's complement
+    return ((0xFFFF - sum) & 0xFFFF) >>> 0;
+}
+
+// ---------------------------------------------------------
+// The 26+6 Fixed-Precision Engine
+// ---------------------------------------------------------
+export function pack(value, scale) {
+    return (((value & 0x3FFFFFF) << 6) | (scale & 0x3F)) >>> 0;
+}
+
+export function multiply(a, b) {
+    let v1 = a >> 6;
+    let s1 = a & 0x3F;
+    
+    let v2 = b >> 6;
+    let s2 = b & 0x3F;
+    
+    let finalValue = v1 * v2;
+    let finalScale = s1 + s2;
+    
+    while (finalValue > 33554431 || finalValue < -33554431) {
+        finalValue = finalValue >> 1;
+        finalScale = finalScale - 1;
+    }
+    
+    return (((finalValue & 0x3FFFFFF) << 6) | (finalScale & 0x3F)) >>> 0;
+}
+
+// ---------------------------------------------------------
+// Gratuitous ARP (Boot Announcement)
+// Forces SLIRP to respond and deliver the first packet into the RX ring.
+// Called once immediately after DRIVER_OK and populateRxRing.
+// ---------------------------------------------------------
+export function sendGratuitousArp(unused0, unused1, unused2) {
+    let stateMem = 0x600000;
+
+    // Mailbox: read actual inputs from stateMem[12-14]
+    let txBufferPA = stateMem[12] | 0;
+    let ringsPA = stateMem[13] | 0;
+    let ioBase = stateMem[14] | 0;
+
+    let txMem = txBufferPA;
+
+    // Zero the 72-byte buffer (18 words * 4 bytes)
+    let i = 0;
+    while (i < 18) {
+        txMem[i] = 0;
+        i = (i + 1) | 0;
+    }
+
+    // Ethernet Header (starts at byte offset 10, after virtio_net_hdr)
+    // Destination MAC: Broadcast (FF:FF:FF:FF:FF:FF)
+    let j = 0;
+    while (j < 6) {
+        writeUint8(txBufferPA, (10 + j) | 0, 0xFF);
+        j = (j + 1) | 0;
+    }
+
+    // Source MAC: Our MAC (packed into stateMem[8] and stateMem[9])
+    let macA = stateMem[8] | 0;
+    let macB = stateMem[9] | 0;
+    writeUint8(txBufferPA, 16, (macA >>> 24) & 0xFF);
+    writeUint8(txBufferPA, 17, (macA >>> 16) & 0xFF);
+    writeUint8(txBufferPA, 18, (macA >>> 8) & 0xFF);
+    writeUint8(txBufferPA, 19, macA & 0xFF);
+    writeUint8(txBufferPA, 20, (macB >>> 24) & 0xFF);
+    writeUint8(txBufferPA, 21, (macB >>> 16) & 0xFF);
+
+    // EtherType: ARP (0x0806)
+    writeUint16_BE(txBufferPA, 22, 0x0806);
+
+    // ARP Payload (starts at byte 24)
+    writeUint16_BE(txBufferPA, 24, 0x0001); // Hardware Type: Ethernet
+    writeUint16_BE(txBufferPA, 26, 0x0800); // Protocol Type: IPv4
+    writeUint8(txBufferPA, 28, 6);           // HLEN: 6
+    writeUint8(txBufferPA, 29, 4);           // PLEN: 4
+    writeUint16_BE(txBufferPA, 30, 0x0001); // Operation: ARP Request (gratuitous)
+
+    // Sender MAC: Our MAC
+    writeUint8(txBufferPA, 32, (macA >>> 24) & 0xFF);
+    writeUint8(txBufferPA, 33, (macA >>> 16) & 0xFF);
+    writeUint8(txBufferPA, 34, (macA >>> 8) & 0xFF);
+    writeUint8(txBufferPA, 35, macA & 0xFF);
+    writeUint8(txBufferPA, 36, (macB >>> 24) & 0xFF);
+    writeUint8(txBufferPA, 37, (macB >>> 16) & 0xFF);
+
+    // Sender IP: Our IP (10.0.2.15)
+    writeUint8(txBufferPA, 38, 10);
+    writeUint8(txBufferPA, 39, 0);
+    writeUint8(txBufferPA, 40, 2);
+    writeUint8(txBufferPA, 41, 15);
+
+    // Target MAC: 00:00:00:00:00:00 (gratuitous convention - already zeroed)
+
+    // Target IP: Our own IP (10.0.2.15) - same as sender for gratuitous ARP
+    writeUint8(txBufferPA, 48, 10);
+    writeUint8(txBufferPA, 49, 0);
+    writeUint8(txBufferPA, 50, 2);
+    writeUint8(txBufferPA, 51, 15);
+
+    // Mailbox Protocol: write TX arguments to stateMem[20-24], then ring the bell.
+    let txRingsPA = (ringsPA + 16384) | 0;
+    let txAvailPA = (txRingsPA + 4096) | 0;
+    stateMem[20] = txRingsPA;
+    stateMem[21] = txBufferPA;
+    stateMem[22] = 70;
+    stateMem[23] = txAvailPA;
+    stateMem[24] = ioBase;
+
+    let ext_push_tx_ring_fn = __extern('ext_push_tx_ring');
+    ext_push_tx_ring_fn(0, 0, 0, 0, 0); // doorbell — args ignored
+    return 0;
+}

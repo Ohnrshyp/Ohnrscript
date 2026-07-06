@@ -70,98 +70,86 @@ echo "  Ohnrscript Kernel Build"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
-# ── Step 1: Compile kernel.ohn → kernel.ll ──────────────────────────────
-echo "  [1/5] Compiling kernel.ohn → LLVM IR..."
-node --input-type=module << 'EOF'
-import { createRequire } from 'module';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import path from 'path';
+# ── Step 1: Compile .ohn → .ll ──────────────────────────────
+echo "  [1/5] Compiling .ohn → LLVM IR..."
 
-const require = createRequire(import.meta.url);
+compile_ohn() {
+    local src_file=$1
+    local ll_out=$2
+    echo "    Compiling $(basename ${src_file})..."
+    node -e "
+    const { createRequire } = require('module');
+    const fs = require('fs');
+    const path = require('path');
 
-const REPO_ROOT = process.env.REPO_ROOT;
-const SRC = process.env.SRC;
-const LL_OUT = process.env.LL_OUT;
+    const REPO_ROOT = '${REPO_ROOT}';
+    const SRC = '${src_file}';
+    const LL_OUT = '${ll_out}';
 
-// Clear require cache
-Object.keys(require.cache)
-    .filter(k => k.includes('generator') || k.includes('parser'))
-    .forEach(k => delete require.cache[k]);
+    Object.keys(require.cache)
+        .filter(k => k.includes('generator') || k.includes('parser'))
+        .forEach(k => delete require.cache[k]);
 
-const parser = require(path.join(REPO_ROOT, 'compiler/src/frontend/parser.ohn'));
-const generator = require(path.join(REPO_ROOT, 'compiler/src/codegen/generator-llvm.ohn'));
+    const parser = require(path.join(REPO_ROOT, 'compiler/src/frontend/parser.ohn'));
+    const generator = require(path.join(REPO_ROOT, 'compiler/src/codegen/generator-llvm.ohn'));
 
-const src = readFileSync(SRC);
-const rootIndex = parser.parse(new Uint8Array(src));
+    const src = fs.readFileSync(SRC);
+    const rootIndex = parser.parse(new Uint8Array(src));
 
-generator.generate(
-    parser.get_ast_nodes(),
-    parser.get_ast_extra(),
-    parser.get_intern_pool(),
-    rootIndex,
-    LL_OUT
-);
-EOF
+    generator.generate(
+        parser.get_ast_nodes(),
+        parser.get_ast_extra(),
+        parser.get_intern_pool(),
+        rootIndex,
+        LL_OUT
+    );
+    " 2>&1
+}
 
-# Simpler Node.js invocation (fallback for older Node versions)
-node -e "
-const { createRequire } = require('module');
-const fs = require('fs');
-const path = require('path');
+compile_ohn "${KERNEL_DIR}/src/network_parser.ohn" "${DIST}/network_parser.ll"
+compile_ohn "${KERNEL_DIR}/src/tcp.ohn" "${DIST}/tcp.ll"
+compile_ohn "${KERNEL_DIR}/src/kernel.ohn" "${DIST}/kernel.ll"
 
-const REPO_ROOT = '${REPO_ROOT}';
-const SRC = '${SRC}';
-const LL_OUT = '${LL_OUT}';
-
-Object.keys(require.cache)
-    .filter(k => k.includes('generator') || k.includes('parser'))
-    .forEach(k => delete require.cache[k]);
-
-const parser = require(path.join(REPO_ROOT, 'compiler/src/frontend/parser.ohn'));
-const generator = require(path.join(REPO_ROOT, 'compiler/src/codegen/generator-llvm.ohn'));
-
-const src = fs.readFileSync(SRC);
-const rootIndex = parser.parse(new Uint8Array(src));
-
-generator.generate(
-    parser.get_ast_nodes(),
-    parser.get_ast_extra(),
-    parser.get_intern_pool(),
-    rootIndex,
-    LL_OUT
-);
-
-console.log('  Done → ' + LL_OUT);
-" 2>&1
+# Package Linker: Link external ecosystem packages
+compile_ohn "${REPO_ROOT}/packages-llvm/node.ohn/src/http.ohn" "${DIST}/http.ll"
+compile_ohn "${REPO_ROOT}/packages-llvm/node.ohn/src/router.ohn" "${DIST}/router.ll"
+compile_ohn "${REPO_ROOT}/packages-llvm/db.ohn/src/db.ohn" "${DIST}/db.ll"
 
 # ── Step 2: Validate LLVM IR ─────────────────────────────────────────────
 echo ""
-echo "  [2/5] Validating kernel.ll with llvm-as..."
-"${LLVM_AS}" "${LL_OUT}" -o /dev/null
+echo "  [2/5] Validating LLVM IR with llvm-as..."
+"${LLVM_AS}" "${DIST}/network_parser.ll" -o /dev/null
+"${LLVM_AS}" "${DIST}/tcp.ll" -o /dev/null
+"${LLVM_AS}" "${DIST}/kernel.ll" -o /dev/null
+"${LLVM_AS}" "${DIST}/http.ll" -o /dev/null
+"${LLVM_AS}" "${DIST}/router.ll" -o /dev/null
+"${LLVM_AS}" "${DIST}/db.ll" -o /dev/null
 echo "  PASS ✓"
 
 # ── Step 3: Check for unsupported constructs ─────────────────────────────
-UNSUPPORTED=$(grep -c '; UNSUPPORTED' "${LL_OUT}" || true)
+UNSUPPORTED=$(grep -hc '; UNSUPPORTED' "${DIST}"/*.ll | awk '{sum+=$1} END {print sum}' || true)
 if [ "${UNSUPPORTED}" -gt "0" ]; then
-    echo "  WARNING: ${UNSUPPORTED} UNSUPPORTED constructs found in kernel.ll"
-    grep '; UNSUPPORTED' "${LL_OUT}"
-    echo "  These will emit dummy zero values — check kernel.ohn for unsupported syntax"
+    echo "  WARNING: ${UNSUPPORTED} UNSUPPORTED constructs found."
 else
     echo "  Zero UNSUPPORTED constructs ✓"
 fi
 
-# ── Step 4: Compile both objects ─────────────────────────────────────────
+# ── Step 4: Compile objects ─────────────────────────────────────────
 echo ""
-echo "  [3/5] Compiling kernel.ll → kernel.o (i386-elf freestanding)..."
-"${CLANG}" \
-    -target i386-elf \
-    -ffreestanding \
-    -fno-builtin \
-    -fno-stack-protector \
-    -O2 \
-    -c "${LL_OUT}" \
-    -o "${KERNEL_OBJ}"
-echo "  Done → ${KERNEL_OBJ}"
+echo "  [3/5] Compiling .ll → .o (i386-elf freestanding)..."
+
+compile_ll() {
+    local ll_file=$1
+    local o_file=$2
+    "${CLANG}" -target i386-elf -ffreestanding -fno-builtin -fno-stack-protector -O2 -c "${ll_file}" -o "${o_file}"
+}
+
+compile_ll "${DIST}/network_parser.ll" "${DIST}/network_parser.o"
+compile_ll "${DIST}/tcp.ll" "${DIST}/tcp.o"
+compile_ll "${DIST}/kernel.ll" "${DIST}/kernel.o"
+compile_ll "${DIST}/http.ll" "${DIST}/http.o"
+compile_ll "${DIST}/router.ll" "${DIST}/router.o"
+compile_ll "${DIST}/db.ll" "${DIST}/db.o"
 
 echo ""
 echo "  [4/5] Compiling boot.c → boot.o (i386-elf freestanding)..."
@@ -181,7 +169,8 @@ echo "  [5/5] Linking → kernel.elf..."
 ld.lld \
     -m elf_i386 \
     -T "${LINKER}" \
-    "${KERNEL_OBJ}" "${BOOT_OBJ}" \
+    "${DIST}/kernel.o" "${DIST}/tcp.o" "${DIST}/network_parser.o" \
+    "${DIST}/http.o" "${DIST}/router.o" "${DIST}/db.o" "${BOOT_OBJ}" \
     -o "${ELF_OUT}"
 
 ELF_SIZE=$(wc -c < "${ELF_OUT}")
@@ -200,7 +189,10 @@ if [ "$1" = "run" ]; then
     echo ""
     qemu-system-i386 \
         -kernel "${ELF_OUT}" \
+        -append "VLAN=1000" \
         -m 32M \
+        -netdev user,id=vnet,hostfwd=tcp::8080-:80 \
+        -device virtio-net,netdev=vnet \
         -display curses \
         -serial stdio \
         -no-reboot \

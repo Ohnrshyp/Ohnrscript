@@ -41,6 +41,13 @@ SECTIONS
     }
 
     /* Discard debug sections to keep binary minimal */
+    . = ALIGN(4096);
+    .virtio_rings : {
+        _virtio_rings_start = .;
+        *(.virtio_rings)
+        _virtio_rings_end = .;
+    }
+
     /DISCARD/ : {
         *(.comment)
         *(.eh_frame)

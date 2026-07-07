@@ -1,7 +1,5 @@
 # Ohnrscript Scientific Benchmark Results
 
-*Generated on June 30, 2026*
-
 ## Abstract & First Principles Analysis
 
 > *"Web development has been operating at less than 2% of the physical hardware's actual capabilities, entirely because we standardized on text-based parsers."*

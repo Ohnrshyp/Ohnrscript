@@ -251,7 +251,7 @@ You may use Ohnrscript in production completely for free if your organization me
 
 ### Enterprise Commercial Licenses
 If your organization exceeds the $500k threshold or violates the exemptions above, you must purchase a commercial license for production use:
-- **Ohnrscript Language (Compiler & Web-Native Library):** Available via an annual subscription fee.
+- **Ohnrscript Language (Compiler & Library):** Available via an annual subscription fee.
 - **Ohn-Kernel:** Available on a per-server deployment basis. 
 
 *To view our pricing tiers or purchase a Commercial License, please visit [ohnrscript.com/pricing](https://ohnrscript.com/pricing).*

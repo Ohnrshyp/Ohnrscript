@@ -1,6 +1,6 @@
 # ohn-fnv1a-native
 
-**Ohnrscript LLVM IR Standard Library — FNV-1a Cryptographic Hash**
+**Ohnrscript LLVM IR Standard Library — FNV-1a Hash (Non-Cryptographic)**
 
 ## Status: Architecture-Proved ✅
 

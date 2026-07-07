@@ -10,15 +10,9 @@ All constructs are within the supported LLVM generator subset. Zero unsupported 
 
 `ohn-sort-native` compiles integer sorting and search algorithms from Ohnrscript JavaScript syntax to native ARM64/x86-64 machine code via LLVM IR. These are pure integer operations over typed array pointers — the exact class of code that LLVM's `-O3` optimizer aggressively vectorizes and unrolls.
 
-## Design Note: No `break` Statement
+## Design Note
 
-The generator's current first-pass scope does not handle `break`. All loops in this package use equivalent patterns that are fully supported:
-
-- **Bubble sort**: tracks `lastSwap` index to shrink the outer bound — equivalent to `break`-based early termination
-- **Insertion sort**: uses a sentinel value (`j = -1`) to exit the inner loop via the condition check
-- **Search functions**: use `return` from inside the loop — supported by the generator's `ReturnStatement` handler
-
-This is a constraint of the first-pass LLVM generator, documented honestly. The algorithms are mathematically correct and produce identical results to their `break`-based equivalents.
+The LLVM generator now fully supports `break` and `continue`. Earlier versions of this package used equivalent loop patterns (sentinel values, condition variables) as workarounds. These patterns remain in the source as they are mathematically identical and produce optimal LLVM IR — there is no performance difference.
 
 ## Functions
 

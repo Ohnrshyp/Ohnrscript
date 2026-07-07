@@ -6,23 +6,30 @@ The *Ohn Kernel* logic, which borrows from JavaScript syntax, compiles Ahead-of-
 
 According to our benchmarks, Ohnrscript allows enterprise hyperscalers, AI data centers, and high-frequency embedded systems to process massive network payloads and execute ML inference at bare-metal speeds without abandoning web-native syntax.
 
-*If you would like to immediately explore the toolchain, run the benchmark suites, or compile the Ohn-kernel into a bootable QEMU disk image, navigate to the respective packages:*
+### Getting Started
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/ohnrscript.git
+git clone https://github.com/ohnrshyp/ohnrscript.git
 cd ohnrscript
 
-# Install dependencies (for the build pipeline and CLI tools)
+# Install dependencies
 npm install
 
-# Run the native LLVM vs V8 benchmarks
-node benchmarks/llvm-vs-js-bench.js
+# Run the V8 package benchmarks (uuid, cbor, ws, cookie, zod)
+./run-cleanroom-benchmarks.sh
+
+# Boot the kernel (Docker required — no other dependencies needed)
+docker build -t ohn-kernel .
+docker run -it --rm -p 8080:8080 ohn-kernel
+
+# In another terminal:
+curl http://localhost:8080
+# → OK
 ```
 
-*(See `packages-llvm/ohn-kernel/README.md` for instructions on booting the kernel via QEMU.)*
-
-*You can read our full benchmark report at `benchmarks/BENCHMARK_RESULTS.md`*
+*See `packages-llvm/ohn-kernel/README.md` for native build instructions without Docker.*
+*Full benchmark report: `benchmarks/BENCHMARK_RESULTS.md`*
 
 ### VS Code Extension
 Because Ohnrscript enforces a strict subset of JavaScript syntax and introduces custom primitives, we highly recommend installing the official VS Code extension for syntax highlighting and language support:
@@ -97,11 +104,11 @@ Because Ohnrscript is a dual-compiling language, its ecosystem is divided to sup
 These packages utilize direct LLVM bindings to build system-level architecture from scratch.
 
 #### `ohn-kernel`
-A custom x86 multiboot-compliant kernel written entirely in Ohnrscript syntax. 
-- Boots directly from the BIOS/UEFI on physical hardware or QEMU.
-- Establishes a VGA buffer at physical address `0xB8000`.
-- Maps physical memory dynamically without standard Linux paging overhead.
-- Executes user-space code with absolute zero context-switching latency.
+A 64KB HTTP-serving unikernel written entirely in Ohnrscript syntax.
+- Boots via Multiboot, initializes its own VirtIO-net driver, implements TCP, and serves HTTP.
+- Uses a FOH/BOH (Front of House / Back of House) polling architecture — no interrupts in the hot path.
+- Links ecosystem packages (`http.ohn`, `tcp.ohn`, `router.ohn`, `db.ohn`) at compile time.
+- Deployable via Docker in one command or as a Firecracker micro-VM image.
 
 #### `node.ohn`
 A natively-compiled web server and Node.js runtime replacement.
@@ -194,7 +201,7 @@ Ohnrscript mathematically breaks the O(N) hardware scaling laws of web developme
 
 | Benchmark Name | Iterations | Standard Stack Result | Ohnrscript Result | Speedup Factor | Heap Memory Delta |
 |---|---|---|---|---|---|
-| **AI Vector Processing** (1536 floats) | 100,000 | 13,279.23 ms (JSON) <br> 194.86 ms (DataView) | **3.50 ms** | **3,791x** vs JSON <br> **55.70x** vs Binary | 10.82 MB |
+| **AI Vector Processing** (1536 floats) | 100,000 | 194.86 ms (DataView) <br> 13,279.23 ms (JSON) | **3.50 ms** | **55.70x** vs Binary <br> (3,791x vs JSON.parse) | 10.82 MB |
 | **Cryptographic UUID** (`ohn-uuid`) | 5,000,000 | 5,438.36 ms | **119.98 ms** | **45.33x** | 0.96 MB |
 | **CBOR Parsing** (`ohn-cbor`) | 100,000 | 640.30 ms | **36.42 ms** | **17.58x** | 0.00 MB |
 | **40-Field Payload Parse** | 100,000 | 2,684.75 ms | **235.23 ms** | **11.41x** | 0.00 MB |
@@ -248,6 +255,7 @@ If your organization exceeds the $500k threshold or violates the exemptions abov
 - **Ohn-Kernel:** Available on a per-server deployment basis. 
 
 *To view our pricing tiers or purchase a Commercial License, please visit [ohnrscript.com/pricing](https://ohnrscript.com/pricing).*
+*For inquiries, contact [support@ohnrshyp.com](mailto:support@ohnrshyp.com).*
 
 ### The Open-Source Change Date
 Exactly 5 years from today (**July 4, 2031**), this version of the Ohnrscript toolchain will automatically transition to the **Mozilla Public License, version 2.0 (MPL-2.0)**, becoming true Open Source Software.

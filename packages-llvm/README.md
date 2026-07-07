@@ -85,7 +85,7 @@ Requirements: Node.js ≥ 18, LLVM/clang ≥ 15, Apple Silicon (ARM64) or x86-64
 
 ```bash
 # From the Ohnrscript repo root:
-node benchmarks/llvm-vs-js-bench.js
+node packages/run-all-packages-benchmarks.js
 ```
 
 ---

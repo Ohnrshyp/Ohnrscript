@@ -1,0 +1,8 @@
+node_modules
+.git
+packages-llvm/db.ohn/disk.img
+packages-llvm/ohn-kernel/dist
+packages-llvm/ohn-kernel/*.pcap
+packages-llvm/ohn-kernel/*.log
+*.vsix
+.vscode-extension/*.vsix

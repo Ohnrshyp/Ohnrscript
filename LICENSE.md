@@ -17,8 +17,8 @@ You may make use of the Licensed Work for production purposes, provided that you
 2. Competitive Service Restriction: You do not use the Licensed Work to provide a managed service, Platform-as-a-Service (PaaS), Database-as-a-Service (DBaaS), or any commercial offering where the primary value provided to third parties is access to the Ohnrscript Compiler, Ohn-Kernel, or related compilation/execution services. 
 3. Hardware Restriction: The rights granted under this License (including non-production use) are immediately and automatically revoked if the Licensee, or any affiliate of the Licensee, manufactures, sells, or distributes custom physical hardware or silicon designed to accelerate or natively execute the Licensed Work without an explicit, separate Commercial Hardware Agreement from the Licensor.
 
-If your use cases exceed these thresholds or violate these restrictions, any production use of the Licensed Work requires a Commercial License from the Licensor. Commercial Licenses for the Ohnrscript Language (Compiler and Web-Native Library) are available via an annual subscription fee. Commercial Licenses for the Ohn-Kernel are available on a per-server basis.
-Change Date: July 4, 2031
+If your use cases exceed these thresholds or violate these restrictions, any production use of the Licensed Work requires a Commercial License from the Licensor. Commercial Licenses for the Ohnrscript Language (Compiler and Library) are available via an annual subscription fee. Commercial Licenses for the Ohn-Kernel are available on a per-server basis.
+Change Date: July 8, 2031
 Change License: Mozilla Public License, version 2.0 (MPL-2.0)
 
 Terms

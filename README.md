@@ -258,7 +258,7 @@ If your organization exceeds the $500k threshold or violates the exemptions abov
 *For inquiries, contact [support@ohnrshyp.com](mailto:support@ohnrshyp.com).*
 
 ### The Open-Source Change Date
-Exactly 5 years from today (**July 4, 2031**), this version of the Ohnrscript toolchain will automatically transition to the **Mozilla Public License, version 2.0 (MPL-2.0)**, becoming true Open Source Software.
+Exactly 5 years from today (**July 8, 2031**), this version of the Ohnrscript toolchain will automatically transition to the **Mozilla Public License, version 2.0 (MPL-2.0)**, becoming true Open Source Software.
 For full legal definitions and constraints, please read the [LICENSE.md](LICENSE.md) file.
 
 ---

@@ -2,6 +2,16 @@
 
 Welcome to Ohnrscript (`.ohn`). While it shares the ergonomic C-style syntax of JavaScript, it is a fundamentally different language. Ohnrscript is an ahead-of-time (AOT) compiled systems language designed to bypass dynamic runtimes (V8/Node) and execute directly on bare metal via LLVM IR.
 
+*(Note: Code blocks in this guide use `typescript` tags solely to force GitHub's markdown renderer to apply syntax highlighting. They are strictly Ohnrscript).*
+
+### The VS Code Extension
+Because Ohnrscript enforces a strict subset of JavaScript syntax, you should install the official VS Code extension for proper `.ohn` syntax highlighting and language support:
+
+```bash
+cd .vscode-extension
+code --install-extension ohnrscript-language-support-0.1.0.vsix
+```
+
 This guide covers the core constraints, syntax semantics, and Data-Oriented Design (DOD) principles required to write valid Ohnrscript.
 
 ---
@@ -15,7 +25,7 @@ The foundational primitive of the language is the 32-bit integer (`i32`).
 ### Variable Declarations & Casting
 All variables map directly to LLVM `i32` virtual registers. To guarantee type stability, the compiler enforces explicit integer casting using the bitwise OR `| 0` operator.
 
-```ohnrscript
+```typescript
 // Correct: Maps to a static i32 register
 let counter = 0 | 0;
 let max_connections = 1000 | 0;
@@ -38,7 +48,7 @@ Because there is no Garbage Collector (GC), you cannot allocate memory dynamical
 ### Reading and Writing Memory
 Instead of accessing object properties, you read and write raw bytes via index offsets. 
 
-```ohnrscript
+```typescript
 // Accessing memory via typed array indices
 let buffer = new Uint8Array(4096);
 let offset = 12 | 0;
@@ -53,7 +63,7 @@ buffer[offset] = 255 | 0;
 ### Complex Reads (Little-Endian)
 To read larger primitives (like a 32-bit integer) from a raw buffer, you must combine bit-shifts. This maps perfectly to network and protocol parsing.
 
-```ohnrscript
+```typescript
 function readUint32_LE(buffer, byteOffset) {
     let wordIndex = byteOffset >>> 2;
     let bitShift = (byteOffset & 3) * 8;
@@ -75,7 +85,7 @@ Ohnrscript does not support dynamic strings. You cannot use `.split()`, `.match(
 
 To parse text-based protocols (like HTTP or TCP), you must cast byte sequences directly into integers and compare them.
 
-```ohnrscript
+```typescript
 // Integer-Cast Method Constants (Little Endian)
 // "GET " -> 0x20544547 (542393671)
 let METHOD_GET = 542393671 | 0;
@@ -99,7 +109,7 @@ The LLVM generator fully supports standard control flow mechanisms, including `w
 
 However, all loop condition variables must be strict integers.
 
-```ohnrscript
+```typescript
 function scanForNewline(buffer, length) {
     let i = 0 | 0;
     while (i < length) {
@@ -124,7 +134,7 @@ function scanForNewline(buffer, length) {
 
 To interact with C libraries, assembly, or the kernel hardware (like VirtIO drivers or the VGA buffer), Ohnrscript provides the `__extern()` directive. This links external symbols during the LLVM compilation phase.
 
-```ohnrscript
+```typescript
 // Bind to hardware I/O instructions (inb/outb)
 const ohn_inb = __extern('inb');
 const ohn_outb = __extern('outb');
@@ -147,7 +157,7 @@ You cannot use `0.5` or `Math.PI`.
 
 Instead, Ohnrscript uses a custom **26+6 bit-packed fixed-point engine**. Every `i32` holds 26 bits of whole numbers and 6 bits of fractional scale.
 
-```ohnrscript
+```typescript
 // Multiplying two 26+6 fixed-point integers
 function multiply_fixed(a, b) {
     // The exact implementation relies on bit-shifting the scale

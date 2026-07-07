@@ -111,7 +111,9 @@ uint32_t mfence() {
 }
 
 uint32_t hlt() {
-    __asm__ volatile("hlt");
+    /* pause: hints the CPU we're in a spin-wait loop, saving power.
+     * hlt would deadlock with all interrupts masked. */
+    __asm__ volatile("pause");
     return 0;
 }
 
@@ -264,6 +266,12 @@ static void setup_interrupts() {
 
     pic_remap();
 
+    /* Mask ALL interrupts on both PICs — fully polled architecture.
+     * VirtIO and keyboard are polled directly from the main loop.
+     * IDT gates remain installed as safety nets but will never fire. */
+    outb(0x21, 0xFF);  /* Master PIC: mask all (including IRQ 1 keyboard) */
+    outb(0xA1, 0xFF);  /* Slave PIC: mask all (including IRQ 11 VirtIO)  */
+
     idt_set_gate(0x21, (uint32_t)irq1_handler, 0x08, 0x8E);
     idt_set_gate(0x29, (uint32_t)irq9_handler, 0x08, 0x8E);
     idt_set_gate(0x2A, (uint32_t)irq10_handler, 0x08, 0x8E);
@@ -402,7 +410,7 @@ uint32_t ext_push_tx_ring(uint32_t _a, uint32_t _b, uint32_t _c, uint32_t _d, ui
 
     // Advance avail idx
     avail_idx = (avail_idx + 1) & 0xFFFF;
-    avail[0] = (flags_idx & 0x0000FFFF) | ((uint32_t)avail_idx << 16);
+    avail[0] = 0x0001 | ((uint32_t)avail_idx << 16); /* flags=VRING_AVAIL_F_NO_INTERRUPT, always */
 
     __asm__ volatile("mfence" ::: "memory");
 
@@ -453,8 +461,9 @@ uint32_t ext_populate_rx_ring(uint32_t _a, uint32_t _b) {
 
     __asm__ volatile("mfence" ::: "memory");
 
-    // Set flags=0 (interrupts enabled), idx=256
-    avail[0] = 0x01000000;
+    // Set flags=1 (VRING_AVAIL_F_NO_INTERRUPT), idx=256
+    // Low 16 bits = flags = 0x0001, High 16 bits = idx = 0x0100 (256 LE)
+    avail[0] = 0x01000001;
 
     // Read back to verify
     uint32_t readback = avail[0];

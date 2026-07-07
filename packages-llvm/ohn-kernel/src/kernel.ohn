@@ -486,147 +486,79 @@ function kernelMain() {
         ohn_vgaWriteChar(8, 75, 10); // K
     }
 
-    ohn_sti(); // Enable Hardware Interrupts
+    // Fully polled architecture — no ohn_sti() needed.
+    // All PICs are masked. No hardware interrupts will fire.
 
-    // Boot milestone: print 'STI' to serial for automated verification
-    ohn_outb(0x3F8, 83); // S
-    ohn_outb(0x3F8, 84); // T
-    ohn_outb(0x3F8, 73); // I
+    // Boot milestone: print 'POLL' to serial for automated verification
+    ohn_outb(0x3F8, 80); // P
+    ohn_outb(0x3F8, 79); // O
+    ohn_outb(0x3F8, 76); // L
+    ohn_outb(0x3F8, 76); // L
     ohn_outb(0x3F8, 10); // \n
 
     let cursorRow = 2;
     let cursorCol = 0;
     let fastLane = 0x500000;
 
-    // The Bare-Metal Node.js-style Event Loop (Bottom Half)
+    // The Bare-Metal Ohnrscript Event Loop — Fully Polled Architecture
+    // Modeled after loop.ohn's kqueue_wait pattern: poll, process, recycle.
     let ringsPA = stateMem[5] | 0;
-    let heartbeat = 0;
+    let base = stateMem[4] | 0;
+
     while (1) {
-        let irq = ohn_poll_interrupt();
+        // ── FOH: Direct VirtIO Used Ring Poll ──
+        // No interrupt needed. Read the used ring index directly.
+        // The used ring starts at ringsPA + 8192 (desc + avail aligned to 4096).
+        // used[0] = flags(16) | idx(16) packed as little-endian 32-bit word.
+        let vringUsedMem = (ringsPA + 8192) | 0;
+        let usedFlagsIdx = vringUsedMem[0] | 0;
+        let usedIdx = (usedFlagsIdx >>> 16) & 0xFFFF;
+        let lastUsedIdx = stateMem[2] | 0;
 
-        heartbeat = (heartbeat + 1) | 0;
-        if (heartbeat === 100000) {
-            heartbeat = 0;
-            let vringUsedMem = (ringsPA + 8192) | 0;
-            let flagsIdx = vringUsedMem[0] | 0;
-            let usedIdx = (flagsIdx >>> 16) & 0xFFFF;
+        // Process ALL new used ring entries since last poll
+        while (lastUsedIdx !== usedIdx) {
+            let ringIndex = lastUsedIdx & 255;
+            let elemId = vringUsedMem[((ringIndex * 2) + 1) | 0] | 0;
+            let packetAddr = (0x300000 + (elemId * 2048)) | 0;
             
-            ohn_outb(0x3F8, 85); // U
-            ohn_outb(0x3F8, 58); // :
-            let u1 = (usedIdx / 100) | 0;
-            let u2 = ((usedIdx - (u1 * 100)) / 10) | 0;
-            let u3 = (usedIdx - (u1 * 100) - (u2 * 10)) | 0;
-            ohn_outb(0x3F8, (48 + u1) | 0);
-            ohn_outb(0x3F8, (48 + u2) | 0);
-            ohn_outb(0x3F8, (48 + u3) | 0);
-            ohn_outb(0x3F8, 10);
-
-            // PERIODIC RX KICK: Wake QEMU's SLIRP backend if it stalled.
-            // If an early DHCP/RA packet arrived before DRIVER_OK, QEMU put the
-            // RX backend to sleep. This kick forces qemu_flush_queued_packets()
-            // to re-evaluate can_receive() and deliver any buffered packets.
-            // Kicking an already-awake queue is a harmless no-op.
-            ohn_virtio_rx_kick(stateMem[4] | 0, 0);
-        }
-
-        // FOH (Producer)
-        if (irq === stateMem[6]) {
-            ohn_outb(0x3F8, 33); // '!' to serial port on any VirtIO interrupt
-            ohn_ext_dump_rings(0, 0); // Dump ring state from C
+            // VirtIO Net Header = 10 bytes
+            // Ethernet Header = 14 bytes
+            // IPv4 starts at byte 24.
+            // Ohnrscript arrays are 32-bit (4-byte words).
             
-            let base = stateMem[4] | 0;
-            let rings = stateMem[5] | 0;
-            let isr = ohn_inb((base + 19) | 0); // Check if VirtIO had work (C handler already deasserted)
+            // EtherType is at bytes 22, 23 (10 VirtIO + 12 MACs)
+            let ethertype0 = kfoh_readUint8(packetAddr, 22);
+            let ethertype1 = kfoh_readUint8(packetAddr, 23);
+            let isArp = (ethertype0 === 0x08) && (ethertype1 === 0x06);
+            let isIpv4 = (ethertype0 === 0x08) && (ethertype1 === 0x00);
             
-            // Print 'N' when IRQ 11 fires
-            let off = ((cursorRow * 80) + cursorCol) | 0;
-            ohn_vgaWriteChar(off, 78, 11); // 'N'
-            cursorCol = (cursorCol + 1) | 0;
-            
-            let vringUsedMem = (rings + 8192) | 0;
-            let usedFlagsIdx = vringUsedMem[0] | 0;
-            let usedIdx = (usedFlagsIdx >>> 16) & 0xFFFF;
-            let lastUsedIdx = stateMem[2] | 0;
-            
-
-            while (lastUsedIdx !== usedIdx) {
-                let ringIndex = lastUsedIdx & 255;
-                let elemId = vringUsedMem[((ringIndex * 2) + 1) | 0] | 0;
-                let packetAddr = (0x300000 + (elemId * 2048)) | 0;
-                
-                // VirtIO Net Header = 10 bytes
-                // Ethernet Header = 14 bytes
-                // IPv4 starts at byte 24.
-                // Ohnrscript arrays are 32-bit (4-byte words).
-                // Word 6 = Bytes 24, 25, 26, 27. Byte 24 (IPv4 IHL) is lowest 8 bits.
-                // Word 8 = Bytes 32, 33, 34, 35. Byte 33 (TCP Protocol) is bits 8-15.
-                
-                // [AUDIT FIX 1] Hex dump block removed — it called broken
-                // extern kernel_readUint8 (i32 args, callee expects i64)
-                // 32 times per packet, crashing the stack before the TCP
-                // classifier at line 554 could ever run.
-                
-                // EtherType is at bytes 22, 23 (10 VirtIO + 12 MACs)
-                let ethertype0 = kfoh_readUint8(packetAddr, 22);
-                let ethertype1 = kfoh_readUint8(packetAddr, 23);
-                let isArp = (ethertype0 === 0x08) && (ethertype1 === 0x06);
-                let isIpv4 = (ethertype0 === 0x08) && (ethertype1 === 0x00);
-                
-                let isTcp = false;
-                if (isIpv4) {
-                    let protocol = kfoh_readUint8(packetAddr, 33); // 24 + 9
-                    isTcp = (protocol === 6);
-                }
-                
-                if (isIpv4 && isTcp) {
-                    ohn_outb(0x3F8, 64); // '@' = TCP classified into FastLane
-                    let head = stateMem[0] | 0;
-                    fastLane[head & 255] = elemId;
-                    stateMem[0] = (head + 1) | 0;
-                } else if (isArp) {
-                    stateMem[12] = packetAddr;
-                    stateMem[13] = base;
-                    stateMem[14] = rings;
-                    kernel_handleArpRequest(0, 0, 0);
-                    recycleRxDescriptor(elemId, rings, base);
-                } else {
-                    // Mailbox: getBaseOffset is cross-module but only used here.
-                    // handleBufferProvenance is a stub, but Mailbox it for correctness.
-                    stateMem[12] = packetAddr;
-                    ohn_handleBufferProvenance(0);
-                    recycleRxDescriptor(elemId, rings, base);
-                }
-                lastUsedIdx = (lastUsedIdx + 1) & 0xFFFF;
+            let isTcp = false;
+            if (isIpv4) {
+                let protocol = kfoh_readUint8(packetAddr, 33); // 24 + 9
+                isTcp = (protocol === 6);
             }
-            stateMem[2] = lastUsedIdx;
-        } else if (irq === 1) {
-            let scancode = ohn_inb(0x60);
-            if (scancode < 0x80) {
-                let ascii = scancodeToAscii(scancode);
-                if (ascii !== 0) {
-                    let off = ((cursorRow * 80) + cursorCol) | 0;
-                    ohn_vgaWriteChar(off, ascii, 10);
-                    cursorCol = (cursorCol + 1) | 0;
-                }
+            
+            if (isIpv4 && isTcp) {
+                ohn_outb(0x3F8, 64); // '@' = TCP classified into FastLane
+                let head = stateMem[0] | 0;
+                fastLane[head & 255] = elemId;
+                stateMem[0] = (head + 1) | 0;
+            } else if (isArp) {
+                stateMem[12] = packetAddr;
+                stateMem[13] = base;
+                stateMem[14] = ringsPA;
+                kernel_handleArpRequest(0, 0, 0);
+                recycleRxDescriptor(elemId, ringsPA, base);
+            } else {
+                stateMem[12] = packetAddr;
+                ohn_handleBufferProvenance(0);
+                recycleRxDescriptor(elemId, ringsPA, base);
             }
+            lastUsedIdx = (lastUsedIdx + 1) & 0xFFFF;
         }
-        
-        // ISR read moved to C handler (boot.c irq11_handler) to prevent
-        // level-triggered interrupt storm. The C handler deasserts the line
-        // before EOI, so the main thread is no longer starved.
+        stateMem[2] = lastUsedIdx;
 
-        
-        if (cursorCol >= 80) {
-            cursorCol = 0;
-            cursorRow = (cursorRow + 1) | 0;
-        }
-        if (cursorRow >= 25) {
-            ohn_vgaClearScreen();
-            cursorRow = 2;
-            cursorCol = 0;
-        }
-
-        // BOH (Consumer)
+        // ── BOH: Consume FastLane ──
         let head = stateMem[0] | 0;
         let tail = stateMem[1] | 0;
         if (head !== tail) {
@@ -639,14 +571,32 @@ function kernelMain() {
             ohn_handleTcpPacket(0, 0);
             let txBufferPA = stateMem[30] | 0;
             
+            // DIAG: print txBufferPA hex
+            ohn_outb(0x3F8, 116); // 't'
+            let txD1 = (txBufferPA >>> 20) & 0xF;
+            let txD2 = (txBufferPA >>> 16) & 0xF;
+            let txD3 = (txBufferPA >>> 12) & 0xF;
+            let txD4 = (txBufferPA >>> 8) & 0xF;
+            if (txD1 < 10) { ohn_outb(0x3F8, 48 + txD1); } else { ohn_outb(0x3F8, 55 + txD1); }
+            if (txD2 < 10) { ohn_outb(0x3F8, 48 + txD2); } else { ohn_outb(0x3F8, 55 + txD2); }
+            if (txD3 < 10) { ohn_outb(0x3F8, 48 + txD3); } else { ohn_outb(0x3F8, 55 + txD3); }
+            if (txD4 < 10) { ohn_outb(0x3F8, 48 + txD4); } else { ohn_outb(0x3F8, 55 + txD4); }
+            ohn_outb(0x3F8, 10);
+
             if (txBufferPA !== 0) {
-                // [AUDIT FIX 3] Was calling broken extern kernel_readUint16_BE
-                // (i32 args, callee expects i64). Replaced with local kfoh_readUint8.
+                ohn_outb(0x3F8, 33); // '!' = TX push started
                 let packetMem = txBufferPA;
                 let ipByte2 = kfoh_readUint8(packetMem, 26);
                 let ipByte3 = kfoh_readUint8(packetMem, 27);
                 let ipv4Len = ((ipByte2 << 8) | ipByte3) >>> 0;
                 let packetLength = (24 + ipv4Len) | 0; // 10 VirtIO + 14 Eth + IPv4
+                
+                // DIAG: print packet length
+                ohn_outb(0x3F8, 76); // 'L'
+                ohn_outb(0x3F8, 48 + ((packetLength / 100) | 0)); // hundreds
+                ohn_outb(0x3F8, 48 + (((packetLength / 10) | 0) - (((packetLength / 100) | 0) * 10))); // tens
+                ohn_outb(0x3F8, 48 + (packetLength - (((packetLength / 10) | 0) * 10))); // ones
+                ohn_outb(0x3F8, 10); // newline
                 
                 // Mailbox Protocol: write TX arguments to stateMem, ring the bell
                 let boh_txRingsPA = (stateMem[5] + 16384) | 0;
@@ -658,17 +608,44 @@ function kernelMain() {
                 stateMem[24] = stateMem[4] | 0;
 
                 ohn_ext_push_tx_ring(0, 0, 0, 0, 0); // doorbell — args ignored
+                ohn_outb(0x3F8, 36); // '$' = TX push complete
             }
 
             // Recycle AFTER TX push to prevent zero-copy race condition.
-            // For SYN-ACK (txBufferPA === packetAddr), QEMU must DMA-read
-            // the TX buffer before we tell it to overwrite the RX buffer.
             recycleRxDescriptor(elemId, stateMem[5] | 0, stateMem[4] | 0);
             stateMem[1] = (tail + 1) | 0;
-        } else {
-            if (irq === 0) {
-                ohn_hlt();
+        }
+
+        // ── Keyboard: Polled via status port ──
+        // Port 0x64 bit 0 = output buffer full (key waiting at port 0x60)
+        let kbStatus = ohn_inb(0x64);
+        if ((kbStatus & 1) !== 0) {
+            let scancode = ohn_inb(0x60);
+            if (scancode < 0x80) {
+                let ascii = scancodeToAscii(scancode);
+                if (ascii !== 0) {
+                    let off = ((cursorRow * 80) + cursorCol) | 0;
+                    ohn_vgaWriteChar(off, ascii, 10);
+                    cursorCol = (cursorCol + 1) | 0;
+                }
             }
+        }
+
+        // ── VGA cursor wrap ──
+        if (cursorCol >= 80) {
+            cursorCol = 0;
+            cursorRow = (cursorRow + 1) | 0;
+        }
+        if (cursorRow >= 25) {
+            ohn_vgaClearScreen();
+            cursorRow = 2;
+            cursorCol = 0;
+        }
+
+        // ── Idle: yield CPU when nothing to do ──
+        // pause instruction hints the CPU we're in a spin-wait loop.
+        if (lastUsedIdx === usedIdx && head === tail) {
+            ohn_hlt(); // calls 'pause' — yields without halting
         }
     }
     return 0;

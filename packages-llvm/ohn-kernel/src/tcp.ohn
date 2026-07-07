@@ -50,25 +50,27 @@ function tcp_local_writeUint32_BE(buffer, byteOffset, val) {
 }
 
 function tcp_local_getBaseOffset(buffer) {
-    let tpid_offset = (TCP_VIRTIO_HDR_LEN + 12) | 0;
+    // VirtIO net header is always 10 bytes (mrg_rxbuf=off)
+    // Hardcoded to avoid module-level let initialization ordering issues
+    let tpid_offset = (10 + 12) | 0; // byte 22 = EtherType
     let b0 = tcp_local_readUint8(buffer, tpid_offset);
     let b1 = tcp_local_readUint8(buffer, (tpid_offset + 1) | 0);
     let tpid = ((b0 << 8) | b1) >>> 0;
     
     if (tpid === 0x8100) {
-        return (TCP_VIRTIO_HDR_LEN + 18) | 0;
+        return (10 + 18) | 0; // 28: VirtIO + Eth + VLAN
     }
-    return (TCP_VIRTIO_HDR_LEN + 14) | 0;
+    return (10 + 14) | 0; // 24: VirtIO + Eth
 }
 
 function tcp_local_getVlanId(buffer) {
-    let tpid_offset = (TCP_VIRTIO_HDR_LEN + 12) | 0;
+    let tpid_offset = (10 + 12) | 0;
     let b0 = tcp_local_readUint8(buffer, tpid_offset);
     let b1 = tcp_local_readUint8(buffer, (tpid_offset + 1) | 0);
     let tpid = ((b0 << 8) | b1) >>> 0;
     
     if (tpid === 0x8100) {
-        let tci_offset = (TCP_VIRTIO_HDR_LEN + 14) | 0;
+        let tci_offset = (10 + 14) | 0;
         let c0 = tcp_local_readUint8(buffer, tci_offset);
         let c1 = tcp_local_readUint8(buffer, (tci_offset + 1) | 0);
         let tci = ((c0 << 8) | c1) >>> 0;
@@ -184,82 +186,159 @@ export function handleTcpPacket(unused0, unused1) {
     let flags = tcp_local_readUint8(buffer, baseOffset + 33);
     let isSyn = (flags & 0x02) !== 0;
     let isAck = (flags & 0x10) !== 0;
+    let isFin = (flags & 0x01) !== 0;
 
-    // 2. TCP Sequence Arithmetic (The Wrap-Around Fix)
-    let expectedSeq = tcpState[5] | 0;
-    let isNewer = ((incomingSeq - expectedSeq) | 0) >= 0;
-    
-    if (!isNewer && !isSyn) {
-        stateMem[30] = 0;
-        return 0; 
-    }
-
+    // ── SYN: Establish new connection ──
+    // Check SYN FIRST, before sequence arithmetic.
     if (isSyn) {
         tcp_outb(0x3F8, 83); // S = SYN detected
-        // State: SYN_RECEIVED
-        tcpState[0] = 1; 
+        tcpState[0] = 1; // SYN_RECEIVED
         tcpState[1] = vlanId;
         tcpState[2] = remoteIp;
         tcpState[3] = remotePort;
         tcpState[4] = 1000; // Our Initial Sequence Number (ISN)
         tcpState[5] = (incomingSeq + 1) | 0;
-        tcp_outb(0x3F8, 49); // '1' = state written
 
-        // 3. Control Packets: In-Place Mutation (Zero-Copy)
+        // In-Place Mutation (Zero-Copy SYN-ACK)
         tcp_local_swapMacAddresses(buffer);
-        tcp_outb(0x3F8, 50); // '2' = MAC swap done
         tcp_local_swapIpAddresses(buffer, baseOffset);
-        tcp_outb(0x3F8, 51); // '3' = IP swap done
         tcp_local_swapPorts(buffer, baseOffset);
-        tcp_outb(0x3F8, 52); // '4' = port swap done
 
         // Set SYN-ACK Flags
         tcp_local_writeUint8(buffer, baseOffset + 33, 0x12); 
         
-        // Write new Sequence Numbers
+        // Write Sequence Numbers
         tcp_local_writeUint32_BE(buffer, baseOffset + 24, tcpState[4]); // Seq
         tcp_local_writeUint32_BE(buffer, baseOffset + 28, tcpState[5]); // Ack
-        tcp_outb(0x3F8, 53); // '5' = seq/ack written
 
-        // 4. L3 vs L4 Checksum Delegation
+        // IP Checksum
         let ipChecksum = tcp_local_calculateIpv4Checksum(buffer, baseOffset);
         tcp_local_writeUint16_BE(buffer, baseOffset + 10, ipChecksum);
-        tcp_outb(0x3F8, 54); // '6' = IP checksum done
 
-        // Calculate total TCP length (IPv4 length - 20 bytes of IP header)
-        let ipv4Len = (tcp_local_readUint8(buffer, baseOffset + 2) << 8) | tcp_local_readUint8(buffer, baseOffset + 3);
+        // TCP Checksum
+        let ipv4Len = tcp_local_readUint16_BE(buffer, baseOffset + 2);
         let tcpLength = (ipv4Len - 20) | 0;
-
-        // Safety guard: if tcpLength is garbage, bail rather than infinite-loop
         if (tcpLength <= 0 || tcpLength > 1460) {
-            tcp_outb(0x3F8, 63); // '?' = bad tcpLength, aborting
-            tcp_outb(0x3F8, 10);
             stateMem[30] = 0;
             return 0;
         }
-
-        // Manual TCP Checksum
         let tcpChecksum = tcp_local_calculateTcpChecksum(buffer, baseOffset, tcpLength);
         tcp_local_writeUint16_BE(buffer, baseOffset + 36, tcpChecksum);
-        tcp_outb(0x3F8, 55); // '7' = TCP checksum done
         
         // Disable VirtIO checksum offload
         tcp_local_writeUint8(buffer, 0, 0);
         
-        // Return the exact same Rx physical pointer for transmission (Zero Copy)
-        tcp_outb(0x3F8, 88); // X = TX return
-        tcp_outb(0x3F8, 10); // newline
+        tcp_outb(0x3F8, 88); // X = SYN-ACK TX
+        tcp_outb(0x3F8, 10);
         stateMem[30] = physicalAddr;
         return 0; 
     }
 
-    if (isAck && tcp_local_hasPayload(buffer, baseOffset)) {
-        let txBufferAddr = (TX_POOL_BASE + (txPoolIndex * 2048)) | 0;
-        txPoolIndex = (txPoolIndex + 1) | 0;
-        stateMem[30] = txBufferAddr;
-        return 0; 
+    // ── Non-SYN: Sequence Arithmetic ──
+    tcp_outb(0x3F8, 62); // '>' = entered non-SYN path
+    let expectedSeq = tcpState[5] | 0;
+    let seqDiff = (incomingSeq - expectedSeq) | 0;
+    
+    // Positive guard: drop if seqDiff is negative (old/duplicate packet)
+    if (seqDiff < 0) {
+        tcp_outb(0x3F8, 100); // 'd' = dropped (old seq)
+        stateMem[30] = 0;
+        return 0;
+    }
+
+    // Update our local seq from remote ACK
+    if (isAck) {
+        let ackNum = tcp_local_readUint32_BE(buffer, baseOffset + 28);
+        tcpState[4] = ackNum;
+    }
+
+    // ── PSH+ACK with payload: HTTP GET arrived ──
+    let hasData = tcp_local_hasPayload(buffer, baseOffset);
+    tcp_outb(0x3F8, 80); // 'P' = passed seq check
+    if (isAck && hasData) {
+        tcp_outb(0x3F8, 72); // 'H' = HTTP payload detected
+        
+        // Calculate payload length for ACK
+        let ipTotalLen = tcp_local_readUint16_BE(buffer, baseOffset + 2);
+        let ihl = (tcp_local_readUint8(buffer, baseOffset) & 0x0F) * 4;
+        let tcpDataOff = (tcp_local_readUint8(buffer, (baseOffset + ihl + 12) | 0) >>> 4) * 4;
+        let payloadLen = (ipTotalLen - ihl - tcpDataOff) | 0;
+        
+        // Update expected seq to ACK the received data
+        tcpState[5] = (incomingSeq + payloadLen) | 0;
+        let ourSeq = tcpState[4] | 0;
+        
+        // Allocate TX buffer — hardcoded to avoid module-level let/const init issues
+        // TX pool starts at 0x400000, each buffer is 2048 bytes
+        let tx = 0x400000;
+        
+        // Zero first 40 words (160 bytes — covers max packet)
+        tcp_local_zeroBuffer(tx, 40);
+        
+        // ── Build HTTP response body ──
+        let httpOffset = 64; // 10 VirtIO + 14 Eth + 20 IP + 20 TCP = 64
+        let httpLen = tcp_local_writeHttpResponse(tx, httpOffset);
+        
+        // ── TCP Header (offset 44) ──
+        let tcpStart = 44; // 10 + 14 + 20
+        tcp_local_writeUint16_BE(tx, tcpStart, 80);            // Src port: 80
+        tcp_local_writeUint16_BE(tx, tcpStart + 2, tcpState[3]); // Dst port: remote
+        tcp_local_writeUint32_BE(tx, tcpStart + 4, ourSeq);    // Seq
+        tcp_local_writeUint32_BE(tx, tcpStart + 8, tcpState[5]); // Ack
+        tcp_local_writeUint8(tx, tcpStart + 12, 0x50);         // Data offset: 5 words (20B)
+        tcp_local_writeUint8(tx, tcpStart + 13, 0x19);         // Flags: FIN+PSH+ACK
+        tcp_local_writeUint16_BE(tx, tcpStart + 14, 65535);    // Window
+        // Checksum and urgent = 0 (filled below / already zeroed)
+        
+        // ── IPv4 Header (offset 24) ──
+        let ipStart = 24; // 10 + 14
+        let tcpTotalLen = (20 + httpLen) | 0;
+        let ipTotalLenOut = (20 + tcpTotalLen) | 0;
+        tcp_local_writeUint8(tx, ipStart, 0x45);                // Version 4, IHL 5
+        tcp_local_writeUint16_BE(tx, ipStart + 2, ipTotalLenOut); // Total length
+        tcp_local_writeUint16_BE(tx, ipStart + 4, 0x0001);     // Identification
+        tcp_local_writeUint8(tx, ipStart + 8, 64);              // TTL
+        tcp_local_writeUint8(tx, ipStart + 9, 6);               // Protocol: TCP
+        // Src IP: 10.0.2.15
+        tcp_local_writeUint8(tx, ipStart + 12, 10);
+        tcp_local_writeUint8(tx, ipStart + 13, 0);
+        tcp_local_writeUint8(tx, ipStart + 14, 2);
+        tcp_local_writeUint8(tx, ipStart + 15, 15);
+        // Dst IP: remote IP from tcpState
+        tcp_local_writeUint32_BE(tx, ipStart + 16, tcpState[2]);
+        // IP Checksum
+        let ipCk = tcp_local_calculateIpv4Checksum(tx, ipStart);
+        tcp_local_writeUint16_BE(tx, ipStart + 10, ipCk);
+        
+        // ── TCP Checksum (pseudo-header + TCP header + payload) ──
+        let tcpCk = tcp_local_calculateTcpChecksum(tx, ipStart, tcpTotalLen);
+        tcp_local_writeUint16_BE(tx, tcpStart + 16, tcpCk);
+        
+        // ── Ethernet Header (offset 10) ──
+        tcp_local_copyMac(buffer, 16, tx, 10);  // rx src MAC → tx dst MAC
+        tcp_local_writeOurMac(tx, 16, stateMem); // our MAC → tx src MAC
+        tcp_local_writeUint16_BE(tx, 22, 0x0800); // EtherType: IPv4
+        
+        // VirtIO header: no checksum offload
+        tcp_local_writeUint8(tx, 0, 0);
+        
+        tcp_outb(0x3F8, 82); // 'R' = Response built
+        tcp_outb(0x3F8, 10);
+        stateMem[30] = tx;
+        return 0;
+    }
+
+    // ── FIN: Graceful close ──
+    if (isFin) {
+        // ACK the FIN by advancing expected seq
+        tcpState[5] = (incomingSeq + 1) | 0;
+        // We already sent our FIN in the response packet (FIN+PSH+ACK)
+        // No additional packet needed — connection is closed.
+        tcp_outb(0x3F8, 67); // 'C' = Connection closed
+        tcp_outb(0x3F8, 10);
     }
     
+    // Bare ACK or FIN without payload — no TX needed
     stateMem[30] = 0;
     return 0; 
 }
@@ -312,7 +391,118 @@ function tcp_local_swapPorts(buffer, baseOffset) {
 }
 
 function tcp_local_hasPayload(buffer, baseOffset) {
-    return false; // Stub
+    // IPv4 total length
+    let ipTotalLen = tcp_local_readUint16_BE(buffer, baseOffset + 2);
+    // IP Header Length (lower nibble of byte 0 * 4)
+    let ihl = (tcp_local_readUint8(buffer, baseOffset) & 0x0F) * 4;
+    // TCP Data Offset (upper nibble of byte 12 of TCP header * 4)
+    let tcpDataOffset = (tcp_local_readUint8(buffer, (baseOffset + ihl + 12) | 0) >>> 4) * 4;
+    // Payload = total - IP header - TCP header
+    let payloadLen = (ipTotalLen - ihl - tcpDataOffset) | 0;
+    return payloadLen > 0;
+}
+
+function tcp_local_zeroBuffer(buffer, words) {
+    let i = 0;
+    while (i < words) {
+        buffer[i] = 0;
+        i = (i + 1) | 0;
+    }
+}
+
+function tcp_local_copyMac(src, srcOff, dst, dstOff) {
+    let i = 0;
+    while (i < 6) {
+        tcp_local_writeUint8(dst, (dstOff + i) | 0, tcp_local_readUint8(src, (srcOff + i) | 0));
+        i = (i + 1) | 0;
+    }
+}
+
+function tcp_local_writeOurMac(buffer, offset, stateMem) {
+    let macA = stateMem[8] | 0;
+    let macB = stateMem[9] | 0;
+    tcp_local_writeUint8(buffer, offset, (macA >>> 24) & 0xFF);
+    tcp_local_writeUint8(buffer, (offset + 1) | 0, (macA >>> 16) & 0xFF);
+    tcp_local_writeUint8(buffer, (offset + 2) | 0, (macA >>> 8) & 0xFF);
+    tcp_local_writeUint8(buffer, (offset + 3) | 0, macA & 0xFF);
+    tcp_local_writeUint8(buffer, (offset + 4) | 0, (macB >>> 24) & 0xFF);
+    tcp_local_writeUint8(buffer, (offset + 5) | 0, (macB >>> 16) & 0xFF);
+}
+
+function tcp_local_writeHttpResponse(buffer, offset) {
+    // "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
+    // Total: 62 bytes
+    
+    // HTTP/1.1 200 OK\r\n  (17 bytes)
+    tcp_local_writeUint8(buffer, offset, 72);       // H
+    tcp_local_writeUint8(buffer, offset + 1, 84);   // T
+    tcp_local_writeUint8(buffer, offset + 2, 84);   // T
+    tcp_local_writeUint8(buffer, offset + 3, 80);   // P
+    tcp_local_writeUint8(buffer, offset + 4, 47);   // /
+    tcp_local_writeUint8(buffer, offset + 5, 49);   // 1
+    tcp_local_writeUint8(buffer, offset + 6, 46);   // .
+    tcp_local_writeUint8(buffer, offset + 7, 49);   // 1
+    tcp_local_writeUint8(buffer, offset + 8, 32);   // (space)
+    tcp_local_writeUint8(buffer, offset + 9, 50);   // 2
+    tcp_local_writeUint8(buffer, offset + 10, 48);  // 0
+    tcp_local_writeUint8(buffer, offset + 11, 48);  // 0
+    tcp_local_writeUint8(buffer, offset + 12, 32);  // (space)
+    tcp_local_writeUint8(buffer, offset + 13, 79);  // O
+    tcp_local_writeUint8(buffer, offset + 14, 75);  // K
+    tcp_local_writeUint8(buffer, offset + 15, 13);  // \r
+    tcp_local_writeUint8(buffer, offset + 16, 10);  // \n
+    
+    // Content-Length: 2\r\n  (18 bytes)
+    tcp_local_writeUint8(buffer, offset + 17, 67);  // C
+    tcp_local_writeUint8(buffer, offset + 18, 111); // o
+    tcp_local_writeUint8(buffer, offset + 19, 110); // n
+    tcp_local_writeUint8(buffer, offset + 20, 116); // t
+    tcp_local_writeUint8(buffer, offset + 21, 101); // e
+    tcp_local_writeUint8(buffer, offset + 22, 110); // n
+    tcp_local_writeUint8(buffer, offset + 23, 116); // t
+    tcp_local_writeUint8(buffer, offset + 24, 45);  // -
+    tcp_local_writeUint8(buffer, offset + 25, 76);  // L
+    tcp_local_writeUint8(buffer, offset + 26, 101); // e
+    tcp_local_writeUint8(buffer, offset + 27, 110); // n
+    tcp_local_writeUint8(buffer, offset + 28, 103); // g
+    tcp_local_writeUint8(buffer, offset + 29, 116); // t
+    tcp_local_writeUint8(buffer, offset + 30, 104); // h
+    tcp_local_writeUint8(buffer, offset + 31, 58);  // :
+    tcp_local_writeUint8(buffer, offset + 32, 32);  // (space)
+    tcp_local_writeUint8(buffer, offset + 33, 50);  // 2
+    tcp_local_writeUint8(buffer, offset + 34, 13);  // \r
+    tcp_local_writeUint8(buffer, offset + 35, 10);  // \n
+    
+    // Connection: close\r\n  (19 bytes)
+    tcp_local_writeUint8(buffer, offset + 36, 67);  // C
+    tcp_local_writeUint8(buffer, offset + 37, 111); // o
+    tcp_local_writeUint8(buffer, offset + 38, 110); // n
+    tcp_local_writeUint8(buffer, offset + 39, 110); // n
+    tcp_local_writeUint8(buffer, offset + 40, 101); // e
+    tcp_local_writeUint8(buffer, offset + 41, 99);  // c
+    tcp_local_writeUint8(buffer, offset + 42, 116); // t
+    tcp_local_writeUint8(buffer, offset + 43, 105); // i
+    tcp_local_writeUint8(buffer, offset + 44, 111); // o
+    tcp_local_writeUint8(buffer, offset + 45, 110); // n
+    tcp_local_writeUint8(buffer, offset + 46, 58);  // :
+    tcp_local_writeUint8(buffer, offset + 47, 32);  // (space)
+    tcp_local_writeUint8(buffer, offset + 48, 99);  // c
+    tcp_local_writeUint8(buffer, offset + 49, 108); // l
+    tcp_local_writeUint8(buffer, offset + 50, 111); // o
+    tcp_local_writeUint8(buffer, offset + 51, 115); // s
+    tcp_local_writeUint8(buffer, offset + 52, 101); // e
+    tcp_local_writeUint8(buffer, offset + 53, 13);  // \r
+    tcp_local_writeUint8(buffer, offset + 54, 10);  // \n
+    
+    // \r\n  (2 bytes — blank line ending headers)
+    tcp_local_writeUint8(buffer, offset + 55, 13);  // \r
+    tcp_local_writeUint8(buffer, offset + 56, 10);  // \n
+    
+    // OK  (2 bytes — body)
+    tcp_local_writeUint8(buffer, offset + 57, 79);  // O
+    tcp_local_writeUint8(buffer, offset + 58, 75);  // K
+
+    return 59; // Total HTTP response bytes
 }
 
 function tcp_local_recycleToTxPool(addr) {}

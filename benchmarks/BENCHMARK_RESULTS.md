@@ -1,20 +1,20 @@
-# Ohnrscript Scientific Benchmark Results
+# Ohnrscript Benchmark Results & Technical Build History
 
 *Generated on June 30, 2026*
 
-## Abstract & First Principles Analysis
+## Overview & Design Principles
 
-> *"Web development has been operating at less than 2% of the physical hardware's actual capabilities, entirely because we standardized on text-based parsers."*
+> *This document traces Ohnrscript's performance journey from initial benchmarks through self-hosting and native LLVM compilation, providing detailed measurements at each stage.*
 
 Ohnrscript represents a fundamental paradigm shift in web-native language execution. Traditionally, JavaScript/TypeScript environments (like Node.js or Deno running on the V8 engine) rely heavily on the Garbage Collector (GC). When parsing data payloads (JSON, CBOR, WebSockets), traditional runtimes instantiate intermediary strings, deeply nested objects, and arrays on the heap. Once validation (e.g., Zod) runs over these objects, it creates even more intermediary representations. This results in severe "Heap Churn," triggering expensive GC pauses that throttle system throughput.
 
 **The Ohnrscript Solution:** Ohnrscript leverages an Ahead-of-Time (AOT) compiler built on Babel AST manipulation. It intercepts class schema definitions and replaces them with static byte-offset read/write operations targeting raw `Uint8Array` memory buffers. 
-*   **O(1) Memory Scaling Architecture:** Ohnrscript mathematically breaks the traditional O(N) hardware scaling laws of web development. By utilizing strictly pre-allocated memory slabs and Off-Heap Ring Buffers, the memory required to compile or process data is completely decoupled from the size of the payload. The compiler's total memory footprint is statically locked (often < 2MB). You could theoretically compile the entire NPM registry on a $5 Raspberry Pi, and the Ohnrscript compiler would never trigger a Node.js Out-of-Memory (OOM) crash.
+*   **O(1) Heap Scaling Architecture:** Ohnrscript's additional managed-heap allocation remains constant regardless of payload size. By utilizing strictly pre-allocated memory slabs and Off-Heap Ring Buffers, the memory required to compile or process data is decoupled from the size of the payload. The compiler's total memory footprint is statically locked (often < 2MB). You could theoretically compile the entire NPM registry on a $5 Raspberry Pi, and the Ohnrscript compiler would never trigger a Node.js Out-of-Memory (OOM) crash.
 *   **Zero-Allocation Decoding:** Data is never instantiated as an object tree. Getters read directly from raw memory using `DataView` or typed arrays.
-*   **AOT Validation:** Schema validation rules (like length bounds or integer max/min limits) are fused directly into the byte-offset read cycle. The system validates the data *as it decodes it*, mathematically proving it bypasses standard validation overhead.
+*   **AOT Validation:** Schema validation rules (like length bounds or integer max/min limits) are fused directly into the byte-offset read cycle. The system validates the data *as it decodes it*, bypassing standard validation overhead.
 *   **Memory Mapping:** For large numerical datasets (like AI Vectors), Ohnrscript maps an underlying C++ Buffer slice directly to a `Float32Array` without copying the data loop-by-loop.
 
-This document serves as the definitive proof of these performance gains across both macro-architectural pipelines and micro-package libraries. All benchmarks were executed with `--expose-gc` explicitly invoked to track accurate heap deltas.
+This document presents detailed analysis of these performance gains across both macro-architectural pipelines and micro-package libraries. All benchmarks were executed with `--expose-gc` explicitly invoked to track accurate heap deltas.
 
 ### Design Philosophy: Compiled Protocol vs Document Parser
 
@@ -61,7 +61,7 @@ By annotating a property as a `number`, the developer is establishing a strict `
 - **Protobuf (Node.js/V8 Baseline):** 701.60 ms
 - **Ohnrbuffs (Native LLVM IR):** 27.00 ms
 - **Speedup:** Ohnrbuffs Native is **~26.0x faster** than the Protobuf Node.js implementation.
-- **Analysis:** By compiling the strict `ohnrbuffs` byte-offset memory operations directly to LLVM IR and executing on bare metal without V8, the execution time for 1,000,000 decodes plummeted to 27 milliseconds. This translates to decoding **~37 million complex payloads per second** on a single thread. This mathematically proves that Ohnrscript's architecture provides an infinitely scalable path from high-level JavaScript syntax straight down to the absolute physical limits of the CPU's memory bandwidth.
+- **Analysis:** By compiling the strict `ohnrbuffs` byte-offset memory operations directly to LLVM IR and executing on bare metal without V8, the execution time for 1,000,000 decodes plummeted to 27 milliseconds. This translates to decoding **~37 million complex payloads per second** on a single thread. This demonstrates that Ohnrscript's architecture provides a direct compilation path from high-level JavaScript syntax to near-hardware memory bandwidth limits.
 
 ### Results: Heap Memory Delta (Zero-Escape Scope)
 - **Protobuf (protobufjs):** 0.00 MB
@@ -94,7 +94,7 @@ class User {
 }
 ```
 
-The Babel plugin seamlessly intercepts this during the normal build process (like Webpack or Vite) and mathematically fuses the C-struct logic directly into the V8 engine. While `protobufjs` is currently faster at raw string-decoding due to its bespoke varint-length architecture, the benchmarks definitively prove that **Ohnrscript belongs in the heavyweight class of AOT serialization protocols.** It delivers Protobuf-level architecture and physical memory limits without ever forcing developers to leave the comfort and native tooling of standard JavaScript.
+The Babel plugin seamlessly intercepts this during the normal build process (like Webpack or Vite) and fuses the C-struct logic directly into the V8 engine. While `protobufjs` is currently faster at raw string-decoding due to its bespoke varint-length architecture, the benchmarks demonstrate that **Ohnrscript operates at the architectural level of established AOT serialization protocols.** It delivers Protobuf-level architecture and physical memory limits without ever forcing developers to leave the comfort and native tooling of standard JavaScript.
 
 ---
 
@@ -102,7 +102,7 @@ The Babel plugin seamlessly intercepts this during the normal build process (lik
 
 These benchmarks test Ohnrscript acting as a complete microservice/API pipeline, combining parsing, validation, and object generation.
 
-### 4.1 The API Multiplier Effect
+### 2.1 The API Multiplier Effect
 
 *Simulates a microservice endpoint: 1) Parse CBOR 2) Validate Schema 3) Generate UUID.*
 * **Standard Stack (cbor-x + Zod + uuid):**
@@ -111,19 +111,19 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
 * **Ohnrscript Stack (AOT Validation + Zero-Alloc UUID):**
   * Time: 133.13 ms
   * Heap Memory Delta: 3.38 MB
-* **Scientific Conclusion:** **3.23x Speedup** and **6.40 MB less heap churn per 1M requests.** By fusing validation and parsing, Ohnrscript entirely bypasses the Zod intermediary tree overhead.
+* **Conclusion:** **3.23x Speedup** and **6.40 MB less heap churn per 1M requests.** By fusing validation and parsing, Ohnrscript entirely bypasses the Zod intermediary tree overhead.
 
 **Post-Self-Hosting Re-Verification** *(July 1, 2026 — 1,000,000 iterations)*
 * **Standard Stack (cbor-x + Zod + uuid):** 431.21 ms — Heap Delta: 9.74 MB
 * **Ohnrscript Stack (AOT Validation + Zero-Alloc UUID):** 98.58 ms — Heap Delta: 2.99 MB
 * **Result: 4.37x Speedup** — 6.75 MB less heap churn. **+35% improvement over original baseline.**
 
-### 4.2 Registration Payload Benchmark
+### 2.2 Registration Payload Benchmark
 *Simulates AOT parsing on a massive 40-field payload.*
 **First Round (`Buffer.toString()`)**
 * **Standard CBOR Library:** 2832.69 ms
 * **Ohnrscript AOT CBOR:** 153.12 ms
-* **Scientific Conclusion:** **18.50x Speedup.** The larger the payload, the more severe the GC penalty for traditional Node.js. Ohnrscript maintains near O(1) read latency regardless of schema size.
+* **Conclusion:** **18.50x Speedup.** The larger the payload, the more severe the GC penalty for traditional Node.js. Ohnrscript maintains near O(1) read latency regardless of schema size.
 
 **Second Round (Pure-JS `_readString` Loop)**
 * **Standard CBOR Library:** 2832.69 ms
@@ -134,14 +134,14 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
 * **Standard CBOR Library:** 2985.54 ms
 * **Ohnrscript AOT CBOR:** 223.83 ms
 * **Result:** **13.34x Speedup.** 
-* **Scientific Conclusion:** The execution time slightly increased from the Second Round because Ohnrscript is now calculating mathematically correct variable-byte UTF-8 string encoding across 100,000 iterations (rather than a naive ASCII truncator). This completely fixes non-ASCII/Emoji serialization corruption while maintaining elite, 0.00 MB zero-allocation speeds.
+* **Conclusion:** The execution time slightly increased from the Second Round because Ohnrscript is now calculating correct variable-byte UTF-8 string encoding across 100,000 iterations (rather than a naive ASCII truncator). This completely fixes non-ASCII/Emoji serialization corruption while maintaining 0.00 MB zero-allocation performance.
 
 **Post-Self-Hosting Re-Verification** *(July 1, 2026 — 100,000 iterations)*
 * **Standard CBOR Library:** 2,684.75 ms
 * **Ohnrscript AOT CBOR:** 235.23 ms
 * **Result: 11.41x Speedup** — consistent with previous rounds. *(Note: `origin_timestamp` field corrected from millisecond epoch to valid int32 seconds value during this re-run, which is the correct contract for an int32 schema field.)*
 
-### 4.3 High-Dimensional AI Vectors (Zero-Copy)
+### 2.3 High-Dimensional AI Vectors (Zero-Copy)
 *Parsing 100,000 High-Dimensional AI Vectors (1536 floats).*
 
 * **Standard JSON.parse (Text Baseline):** 12891.36 ms
@@ -160,7 +160,7 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
 
 *(Note on Heap Deltas: The "Zero-Copy" method reports a higher heap delta than the "Memory-Safe" copy because creating 100,000 distinct \`Float32Array\` views over a single global \`ArrayBuffer\` alters V8's minor-GC (scavenge) cadence compared to generating fresh, rapidly-discarded C++ slices. Both represent trivial allocation churn compared to the JSON baseline).*
 
-### 4.4 Memory Explosion & The V8 String Limit
+### 2.4 Memory Explosion & The V8 String Limit
 *Attempting to load a massive 614 MB vector payload into memory.*
 
 **Test Conditions:**
@@ -171,26 +171,26 @@ These benchmarks test Ohnrscript acting as a complete microservice/API pipeline,
 
 **Standard Stack (JSON.parse):**
 * **Result:** **Fatal Crash (`ERR_STRING_TOO_LONG`)**
-* **Scientific Conclusion:** When attempting to `fs.readFileSync` the JSON payload, V8 immediately crashed before parsing even began. V8 has a hardcoded string length limit (~512MB to 1GB). Even if this limit were bypassed, exploding 614 MB of binary vectors into JavaScript `Number` objects requires >2 GB of physical RAM, which would trigger a fatal `JavaScript heap out of memory` crash. It is physically impossible to process this payload synchronously in standard Node.js without writing complex, slow, chunked stream parsers.
+* **Conclusion:** When attempting to `fs.readFileSync` the JSON payload, V8 immediately crashed before parsing even began. V8 has a hardcoded string length limit (~512MB to 1GB). Even if this limit were bypassed, exploding 614 MB of binary vectors into JavaScript `Number` objects requires >2 GB of physical RAM, which would trigger a fatal `JavaScript heap out of memory` crash. It is physically impossible to process this payload synchronously in standard Node.js without writing complex, slow, chunked stream parsers.
 
 **Ohnrscript Stack (Zero-Copy):**
 * **Result:** **Success**
 * **Heap Memory Delta:** **0.07 MB**
-* **Scientific Conclusion:** Ohnrscript effortlessly processed the 614 MB payload. By reading the binary file into an off-heap C++ `Buffer` and using the Zero-Copy `mapVector()` memory lens, Ohnrscript completely bypassed V8's string limits and garbage collector. The V8 heap stayed practically at 0.00 MB. This mathematically proves Ohnrscript allows Node.js to achieve Out-of-Core Execution and process datasets far larger than the physical RAM limits of the JavaScript VM.
+* **Conclusion:** Ohnrscript processed the 614 MB payload successfully. By reading the binary file into an off-heap C++ `Buffer` and using the Zero-Copy `mapVector()` memory lens, Ohnrscript bypassed V8's string limits and garbage collector. The V8 heap stayed practically at 0.00 MB. This demonstrates that Ohnrscript enables Out-of-Core Execution in Node.js, processing datasets far larger than the physical RAM limits of the JavaScript VM.
 
 **Post-Self-Hosting Re-Verification** *(July 1, 2026 — fresh vector file generation)*
 * **JSON.parse:** Fatal crash — `ERR_STRING_TOO_LONG` *(confirmed again — crash is deterministic)*
 * **Ohnrscript Zero-Copy:** ✅ Success — **Heap Delta: 0.55 MB**
 * *Note: Heap delta variation (0.07 MB vs 0.55 MB) reflects fresh binary file regeneration and ambient Node.js state. Both runs confirm that Ohnrscript processes the 614 MB payload without GC pressure; standard Node.js cannot complete the operation at any configuration.*
 
-### 3.5 Real-World Implication: The AI RAG Architecture Crisis
+### 2.5 Real-World Implication: The AI RAG Architecture Crisis
 The memory explosion test above uses vectors of exactly `1,536` dimensions—this is not a random number. It is the exact dimensional size of an OpenAI `text-embedding-3-small` embedding. 
 
 In a modern Retrieval-Augmented Generation (RAG) AI pipeline, a Vector Database might return 10,000 embeddings to a Node.js backend to perform a similarity search. 
 * **The Legacy JSON Cost:** Returning those 10,000 vectors as JSON forces the V8 engine to allocate 15.3 million `Number` objects on the heap. A single query balloons the Node.js memory footprint by hundreds of megabytes. If 50 users search simultaneously, the Node.js server crashes (`heap out of memory`). To prevent this, DevOps teams are forced to horizontally scale 64GB+ RAM instances on AWS, costing thousands of dollars a month just to temporarily inflate arrays on the heap.
 * **The Ohnrscript Solution:** Ohnrscript lays a `Float32Array` view directly over the binary network buffer. The physical RAM footprint drops to the exact mathematical minimum (61.4 MB), and the **V8 Heap Delta is 0.00 MB**. 
 
-**Infrastructure Density:** By eradicating the serialization tax, a company that currently needs twenty 64GB servers to handle their AI RAG traffic can mathematically downgrade to two 4GB servers, achieving C-level memory density natively within Node.js.
+**Infrastructure Density:** By eliminating the serialization tax, workloads that currently require high-memory server instances (64 GB+ RAM) for AI RAG traffic can potentially run on significantly smaller hardware, approaching the physical minimum memory footprint within Node.js.
 
 ---
 
@@ -198,7 +198,7 @@ In a modern Retrieval-Augmented Generation (RAG) AI pipeline, a Vector Database 
 
 These tests isolate specific operations (like WebSocket parsing or UUID generation) to prove the effectiveness of Ohnrscript's primitive standard library.
 
-### 4.1 CBOR Parsing (`ohn-cbor`)
+### 3.1 CBOR Parsing (`ohn-cbor`)
 **First Round (`Buffer.toString()`)**
 * **Standard cbor library:** 646.84 ms
 * **Ohnrscript AOT CBOR:** 48.84 ms
@@ -214,7 +214,7 @@ These tests isolate specific operations (like WebSocket parsing or UUID generati
 * **Ohnrscript AOT CBOR:** 36.42 ms
 * **Result: 17.58x faster** — **+33% improvement over original baseline.** The self-hosted compiler's tighter code paths are delivering measurable JIT gains.
 
-### 4.2 Zod vs AOT Schema Validation (`ohn-zod`)
+### 3.2 Zod vs AOT Schema Validation (`ohn-zod`)
 *Tests malicious payloads scaling to 1,000,000 iterations.*
 **First Round (`Buffer.toString()`)**
 * **Standard Zod + cbor-x:**
@@ -234,7 +234,7 @@ These tests isolate specific operations (like WebSocket parsing or UUID generati
   * Heap Memory Delta: 12.13 MB
 * **Result:** Identical. Ohnrscript validates lengths and throws *before* allocating memory or parsing the string. The slow string reader is bypassed entirely during malicious paths, proving the bounds-checking is flawless.
 
-### 4.3 WebSocket Frame Parsing (`ohn-ws`)
+### 3.3 WebSocket Frame Parsing (`ohn-ws`)
 *Pre-allocated 500,000 frames testing in-place mutation.*
 **First Round**
 * **Standard `ws` package:** 170.16 ms (Heap Delta: 14.28 MB)
@@ -251,7 +251,7 @@ These tests isolate specific operations (like WebSocket parsing or UUID generati
 * **Ohnrscript parseFrame:** 67.06 ms — Heap Delta: 1.08 MB
 * **Result: 2.43x faster** — 13.16 MB heap savings. Slight improvement over previous best.
 
-### 4.4 Cryptographic UUID Generation (`ohn-uuid`)
+### 3.4 Cryptographic UUID Generation (`ohn-uuid`)
 *Generation of 5,000,000 UUIDs.*
 **First Round**
 * **Standard JS UUID (raw bytes):** 5405.25 ms
@@ -315,7 +315,7 @@ By writing these metrics to a background CSV file (`server-memory-log.csv`), we 
 
 ## 5. Network Concurrency (Real-World I/O)
 
-To scientifically prove Ohnrscript's zero-allocation architecture prevents Garbage Collection (GC) pauses under extreme event-loop pressure, we assaulted the HTTP server using `autocannon`.
+To verify that Ohnrscript's zero-allocation architecture prevents Garbage Collection (GC) pauses under extreme event-loop pressure, we load-tested the HTTP server using `autocannon`.
 
 **Test Conditions:**
 * Sustained assault: 60-second window
@@ -334,9 +334,9 @@ To scientifically prove Ohnrscript's zero-allocation architecture prevents Garba
 * **p99 Latency:** 366 ms
 * **p99.99 Latency:** 1,659 ms (Consistent zero-allocation ceiling)
 
-### Scientific Conclusion: Tail-Latency Stability Under GC Pressure
+### Conclusion: Tail-Latency Stability Under GC Pressure
 
-A sharp reader will notice that while the micro-benchmark in Section 1.1 shows a **3.23x speedup**, the raw throughput in this concurrent server test only shows a **~1.04x speedup** (40,042 vs 38,629 req/sec). 
+A sharp reader will notice that while the micro-benchmark in Section 2.1 shows a **3.23x speedup**, the raw throughput in this concurrent server test only shows a **~1.04x speedup** (40,042 vs 38,629 req/sec). 
 
 Why does the performance gap compress? **Because of the I/O Bottleneck.** In a real-world HTTP server, the CPU cost of parsing and validating is vanishingly small compared to the physical time it takes to open TCP sockets, read streams, and dispatch the libuv event loop. 
 
@@ -363,7 +363,7 @@ The preceding sections (1–5) established that Ohnrscript delivers order-of-mag
 
 ## 6. V8 Engine Tracing Methodology
 
-To provide mathematically rigorous proof of Ohnrscript's zero-allocation performance and JIT optimization behavior, a specialized benchmarking script (\`v8-tracing-benchmark.js\`) was engineered leveraging Node.js internal V8 tracking capabilities.
+To provide rigorous verification of Ohnrscript's zero-allocation performance and JIT optimization behavior, a specialized benchmarking script (\`v8-tracing-benchmark.js\`) was engineered leveraging Node.js internal V8 tracking capabilities.
 
 ### JIT Compiler Isolation
 When evaluating parsing and validation loops in JavaScript, the V8 engine aggressively profiles the types of objects passing through functions to build "Inline Caches" (ICs). If multiple libraries (e.g., Zod and Ohnrscript) run in the same global execution context, the JIT compiler's feedback from one library can pollute the IC states and trigger unintended deoptimizations (deopts) in the other. 
@@ -389,7 +389,7 @@ The resulting stderr streams are captured into dedicated log files (\`v8-trace-s
 
 ## 7. JIT Optimization Results & Deoptimization Counts
 
-By analyzing the V8 telemetry logs (\`--trace-ic\`, \`--trace-opt\`, and \`--trace-deopt\`), we can mathematically quantify why the Standard Stack suffers from severe tail latencies, and why Ohnrscript achieves near bare-metal C++ speeds. 
+By analyzing the V8 telemetry logs (\`--trace-ic\`, \`--trace-opt\`, and \`--trace-deopt\`), we can quantify why the Standard Stack suffers from severe tail latencies, and why Ohnrscript achieves near bare-metal C++ speeds. 
 
 ### Monomorphic Stability (The Ohnrscript Advantage)
 In V8's optimization pipeline, an Inline Cache (IC) is considered **monomorphic** when a function always receives objects of the exact same hidden class (or shape). When Turbofan sees a monomorphic IC, it compiles the property access directly into a single, blazing-fast machine-code memory offset lookup.
@@ -403,7 +403,7 @@ Standard libraries like Zod and \`cbor-x\` are designed to be generic. They iter
 ### The Deoptimization Penalty (Bailouts)
 A "bailout" occurs when Turbofan generates optimized machine code, but a subsequent execution breaks an assumption (e.g., encountering a new object shape or an unexpected type during validation). V8 is forced to pause execution, discard the optimized machine code, and "deoptimize" back down to the slower Ignition interpreter.
 * **Standard Stack Deoptimizations:** The standard library logs show numerous bailout events. Because schema validation inherently deals with branching logic and dynamic tree structures, Turbofan frequently mispredicts the execution path, forcing costly JIT deoptimizations under load.
-* **Ohnrscript Deoptimizations: 0.** Because Ohnrscript's validation bounds are mathematically fused into the byte-offset reads during the AOT phase, there are no dynamic object shapes to mispredict. Once Turbofan optimizes the \`DataView\` access loop, it **never** bails out. 
+* **Ohnrscript Deoptimizations: 0.** Because Ohnrscript's validation bounds are fused into the byte-offset reads during the AOT phase, there are no dynamic object shapes to mispredict. Once Turbofan optimizes the \`DataView\` access loop, it **never** bails out. 
 
 This proves that Ohnrscript does not merely process data faster—it fundamentally alters the generated bytecode so that the V8 JIT compiler can maintain an unbroken, monomorphic execution state without the penalty of polymorphic thrashing or deoptimization bailouts.
 
@@ -425,19 +425,19 @@ Traditional compilers built in Node.js (like Babel or TypeScript) use dynamic `M
 * **Execution Time**: 7.27 ms
 * **Heap Memory Delta**: 0.02 MB (26 KB)
 
-### Scientific Conclusion: Zero-Allocation Lookups
+### Conclusion: Zero-Allocation Lookups
 The 26 KB heap delta is entirely ambient Node.js event-loop noise. The `SymbolTable` lookup loop processed 100,000 queries and executed 100,000 hash calculations in ~7 milliseconds **without allocating a single object on the V8 heap.** 
 
-Furthermore, by recycling the 16MB arenas back into a global **Free List** when a lexical scope closes (by merely resetting the typed array cursors), the compiler ensures its memory footprint remains completely flat after warmup. This effectively starves the V8 Garbage Collector, mathematically proving that the self-hosted Ohnrscript compiler can achieve C-level latency ceilings inside Node.js.
+Furthermore, by recycling the 16MB arenas back into a global **Free List** when a lexical scope closes (by merely resetting the typed array cursors), the compiler ensures its memory footprint remains completely flat after warmup. This effectively starves the V8 Garbage Collector, demonstrating that the self-hosted Ohnrscript compiler achieves low-latency lookups inside Node.js.
 
 ### 8.1 The Grand Unification: Validating the AOT Parser Thesis
 
-To understand why this is a monumental breakthrough, you must look at how this Symbol Table mathematically validates the macro-benchmarks established earlier in this document (such as the CBOR and Zod AOT parsing).
+To understand why this result is significant, consider how the Symbol Table validates the macro-benchmarks established earlier in this document (such as the CBOR and Zod AOT parsing).
 
 When Ohnrscript's parsing benchmarks first demonstrated a 18x speedup by parsing binary data without allocating JavaScript objects, a standard industry critique would inevitably be:
 > *"Sure, parsing into a flat binary ArrayBuffer is fast. But the second you try to actually DO real work with that binary data—like building a web server, a router, or a compiler—you will be forced to convert those binary bytes back into JavaScript Objects so your business logic can interact with them. The moment you deserialize to JS objects, you lose all your performance gains."*
 
-**The Arena Hash Table mathematically destroys the skeptic's argument.** 
+**The Arena Hash Table directly addresses this concern.** 
 
 The Symbol Table is the most complex, memory-intensive component of a language compiler. Let's look at the math of a standard JavaScript Symbol Table (like the one used in Babel or TypeScript) versus Ohnrscript.
 
@@ -480,18 +480,18 @@ We stress-tested the emitter by forcing it to generate a massive, monolithic 2.0
 * **Total Execution Time:** 1.90 seconds
 * **V8 Heap Delta:** 0.03 MB (37 KB)
 
-**Scientific Conclusion: Infinite Emission Capacity**
-By never instantiating a JavaScript `String` primitive during code generation, we mathematically eradicated the V8 string length limit. We flushed 2 Gigabytes of code to disk in under 2 seconds, and the V8 heap delta was effectively zero (37 KB). 
+**Conclusion: Infinite Emission Capacity**
+By never instantiating a JavaScript `String` primitive during code generation, the V8 string length limit is bypassed entirely. We flushed 2 Gigabytes of code to disk in under 2 seconds, and the V8 heap delta was effectively zero (37 KB). 
 
-This physically proves the **O(1) Memory Scaling Law** introduced in the Abstract. The Ohnrscript compilation pipeline is functionally invulnerable to memory bloat. By decoupling hardware RAM requirements from the size of the codebase, it can compile projects of infinite size while guaranteeing a maximum memory footprint of exactly 1 Megabyte.
+This physically proves the **O(1) Memory Scaling Law** introduced in the Overview. The Ohnrscript compilation pipeline is resistant to memory bloat. By decoupling hardware RAM requirements from the size of the codebase, it can compile projects of arbitrary size while maintaining a maximum memory footprint of approximately 1 Megabyte.
 
 ### 8.4 The Zero-Allocation Lexer & Parser: Negative Heap Delta
 
-This is, to our knowledge, an unprecedented result in the history of JavaScript-based language tooling.
+This is, to our knowledge, a unique result among JavaScript-based language tooling.
 
 Every JavaScript parser in existence—Babel (`@babel/parser`), Acorn, TypeScript's `tsc`, ESLint's Espree, SWC's JS bindings—operates on the same fundamental principle: the Lexer scans text and produces Token *objects* (`{ type: 'Identifier', value: 'x', loc: { line: 1, column: 5 } }`), and the Parser consumes those objects and produces AST Node *objects* (`{ type: 'VariableDeclaration', declarations: [...], kind: 'const' }`). For a moderately complex source file, a single parse pass can allocate millions of short-lived objects on the V8 heap.
 
-The Ohnrscript compiler's Lexer and Parser allocate **zero** objects during parsing. Not "close to zero." Not "a small number." Mathematically, physically, provably zero.
+The Ohnrscript compiler's Lexer and Parser allocate **zero** objects during parsing, as verified by V8's deterministic heap tracking.
 
 **The Architecture:**
 1. **Lexer Register File:** Instead of returning Token objects, the Lexer writes the current token's metadata (type, source offset, length) directly into a permanent `new Int32Array(6)`. The first 3 slots hold the current token; slots 3-5 hold the LL(1) lookahead. `next_token()` shifts the lookahead into the current registers and scans the next token. V8's Garbage Collector has no visibility into typed array contents—it is physically impossible for it to track or collect these values.
@@ -535,7 +535,7 @@ All 6 structural assertions passed: correct node types, correct bitwise flags (`
 
 The V8 Garbage Collector is a background process. When `global.gc()` is called, V8 performs a full mark-and-sweep pass. During 100,000 parse iterations, the Ohnrscript parser generated **zero** new heap objects for the GC to find. With nothing new to track, the GC used its sweep time to reclaim residual objects left over from Node.js's own startup sequence (module loading, `require()` caching, etc.). The heap *shrank* because the parser was so thoroughly allocation-free that the GC had idle capacity to clean up pre-existing debris.
 
-This is not a statistical anomaly. The result is reproducible across multiple runs because the architecture *mathematically guarantees* zero allocation: every data structure is a pre-allocated `Int32Array` or `Uint8Array`, every function argument is a 32-bit SMI, and every piece of string comparison happens at the raw byte level.
+This is not a statistical anomaly. The result is reproducible across multiple runs because the architecture *structurally guarantees* zero allocation: every data structure is a pre-allocated `Int32Array` or `Uint8Array`, every function argument is a 32-bit SMI, and every piece of string comparison happens at the raw byte level.
 
 **Industry Comparison:**
 
@@ -548,9 +548,9 @@ For context, parsing a single 64-byte source string with Babel (`@babel/parser`)
 
 Over 100,000 iterations, that is approximately **22.7 million dynamically allocated objects** that V8 must track, mark, and sweep. The Ohnrscript parser produced exactly **zero**.
 
-**Scientific Conclusion:**
+**Conclusion:**
 
-The Ohnrscript Lexer and Parser constitute the first known JavaScript-syntax parser that achieves a **mathematically provable zero-allocation property** during source code parsing. By replacing Token objects with a typed array Register File, AST node objects with fixed-width 16-byte structs in a flat arena, and string comparisons with raw byte-level operations, the entire parsing pipeline operates completely outside V8's object tracking system. The Garbage Collector is not merely *reduced*—it is rendered structurally irrelevant to the parsing phase. The negative heap delta physically proves that the GC had zero new work to perform across 100,000 complete parse cycles.
+The Ohnrscript Lexer and Parser achieve a verified **zero-allocation property** during source code parsing—a result we have not observed in other JavaScript-syntax parsers. By replacing Token objects with a typed array Register File, AST node objects with fixed-width 16-byte structs in a flat arena, and string comparisons with raw byte-level operations, the entire parsing pipeline operates completely outside V8's object tracking system. The Garbage Collector is not merely *reduced*—it is rendered structurally irrelevant to the parsing phase. The negative heap delta physically proves that the GC had zero new work to perform across 100,000 complete parse cycles.
 
 ---
 
@@ -654,15 +654,15 @@ The self-hosting bootstrap is not just a demonstration. It constitutes a formal 
 
 4. **Zero-Allocation Viability at Scale:** The compiler processes 128,414 bytes of source code (3,726 lines) across 5 files, producing 14,968 AST nodes, and emits valid JavaScript—all without allocating a single dynamic JavaScript object during the parse-and-generate phase. This proves that the zero-allocation architecture is not a toy benchmark trick; it scales to real, production-complexity software.
 
-### Scientific Conclusion
+### Conclusion
 
-The Ohnrscript compiler is, to our knowledge, the first self-hosting compiler that operates entirely on pre-allocated `ArrayBuffer` arenas within a JavaScript runtime, achieving a mathematically provable zero-allocation property during compilation. The three-stage bootstrap protocol with SHA-256 fixed-point verification constitutes a formal proof that the compiler's semantics are self-consistent and its code generation is deterministic.
+The Ohnrscript compiler is, to our knowledge, the first self-hosting compiler that operates entirely on pre-allocated `ArrayBuffer` arenas within a JavaScript runtime, achieving a verified zero-allocation property during compilation. The three-stage bootstrap protocol with SHA-256 fixed-point verification constitutes a formal proof that the compiler's semantics are self-consistent and its code generation is deterministic.
 
 This result closes the full engineering loop opened in Section 8. Section 8 proved that individual compiler components (symbol tables, lexers, parsers, emitters) could operate without triggering V8's Garbage Collector. Section 9 proves that these components, when composed into a complete compilation pipeline, maintain the zero-allocation property across the entire source-to-output transformation. The compiler compiles itself, and it does so without ever asking V8 to allocate a single object on the managed heap.
 
 ---
 
-## 10. Final Conclusion: Unprecedented Results in the JavaScript Ecosystem
+## 10. Final Conclusion: Verified Results Across the JavaScript Ecosystem
 
 *Updated July 1, 2026 — following successful self-hosting verification*
 
@@ -692,11 +692,11 @@ Every benchmark in this table was executed with `--expose-gc`, explicit `global.
 
 **1. Ohnrscript is the first JavaScript-family language to achieve bare-metal memory density natively within V8.**
 
-No JavaScript-syntax language has previously demonstrated zero managed-heap allocation during compilation, data parsing, schema validation, WebSocket frame processing, or UUID generation—simultaneously, across an entire standard library. Projects that achieve comparable performance characteristics—esbuild (Go), SWC (Rust), Bun (Zig)—accomplish this by abandoning JavaScript entirely and rewriting in systems languages. Ohnrscript achieves the same architectural tier while remaining fully native to the V8 runtime and using standard JavaScript syntax.
+We are not aware of another JavaScript-syntax language that has demonstrated zero managed-heap allocation during compilation, data parsing, schema validation, WebSocket frame processing, or UUID generation—simultaneously, across an entire standard library. Projects that achieve comparable performance characteristics—esbuild (Go), SWC (Rust), Bun (Zig)—accomplish this by abandoning JavaScript entirely and rewriting in systems languages. Ohnrscript achieves the same architectural tier while remaining fully native to the V8 runtime and using standard JavaScript syntax.
 
 **2. The V8 Garbage Collector is rendered structurally irrelevant.**
 
-The negative heap delta during parsing (Section 8.4) is, to our knowledge, an unprecedented result in JavaScript tooling. When the parser ran 100,000 complete parse cycles, V8's Garbage Collector found zero new objects to track—and used its idle capacity to reclaim residual debris from Node.js's own startup sequence. The heap *shrank*. This is not an optimization of GC behavior; it is the complete architectural elimination of GC as a performance factor.
+The negative heap delta during parsing (Section 8.4) is, to our knowledge, a unique result in JavaScript tooling. When the parser ran 100,000 complete parse cycles, V8's Garbage Collector found zero new objects to track—and used its idle capacity to reclaim residual debris from Node.js's own startup sequence. The heap *shrank*. This is not an optimization of GC behavior; it is the complete architectural elimination of GC as a performance factor.
 
 **3. Ohnrscript competes within 1.99 microseconds of Google Protobuf per request—natively in JavaScript syntax.**
 
@@ -704,7 +704,7 @@ Google Protocol Buffers represent 15 years of dedicated engineering by one of th
 
 **4. Ohnrscript processes payloads that are physically impossible for standard Node.js.**
 
-The 614 MB vector payload test (Section 4.4) crashed standard Node.js with an unrecoverable `ERR_STRING_TOO_LONG` exception before parsing even began. Ohnrscript processed the identical payload with a 0.07 MB heap delta. The 2 GB code emission test (Section 8.3) emitted 31.1 million AST nodes to disk with a 37 KB heap delta. Standard JavaScript string concatenation would crash V8 attempting to build a string of that size. These are not performance improvements—they are capability thresholds that standard Node.js cannot cross at any speed.
+The 614 MB vector payload test (Section 2.4) crashed standard Node.js with an unrecoverable `ERR_STRING_TOO_LONG` exception before parsing even began. Ohnrscript processed the identical payload with a 0.07 MB heap delta. The 2 GB code emission test (Section 8.3) emitted 31.1 million AST nodes to disk with a 37 KB heap delta. Standard JavaScript string concatenation would crash V8 attempting to build a string of that size. These are not performance improvements—they are capability thresholds that standard Node.js cannot cross at any speed.
 
 **5. The self-hosting bootstrap constitutes a formal proof of architectural completeness.**
 
@@ -726,7 +726,7 @@ The infrastructure implications are direct arithmetic. The memory explosion test
 
 ### Historical Context
 
-Ohnrscript is, to our knowledge, the first language to simultaneously demonstrate all of the following properties within a JavaScript runtime:
+Ohnrscript is, to our knowledge, the first language to demonstrate all of the following properties simultaneously within a JavaScript runtime:
 
 1. Zero managed-heap allocation during compilation
 2. Self-hosting with SHA-256 verified fixed-point determinism
@@ -736,7 +736,7 @@ Ohnrscript is, to our knowledge, the first language to simultaneously demonstrat
 6. Processing of payloads that crash standard Node.js at any configuration
 7. A negative heap delta during sustained parsing—the GC reclaims memory because it has no work
 
-No combination of these results has been achieved by any prior JavaScript-family language, framework, or toolchain. The individual techniques (arena allocation, Pratt parsing, ring buffer emission) are established in systems programming. What is unprecedented is their composition into a complete, self-hosting, JavaScript-native language that operates at the same architectural tier as C, Zig, and Rust—without leaving the V8 runtime.
+No combination of these results has been achieved by any prior JavaScript-family language, framework, or toolchain. The individual techniques (arena allocation, Pratt parsing, ring buffer emission) are established in systems programming. What distinguishes Ohnrscript is the composition of these techniques into a complete, self-hosting, JavaScript-native language that operates at a comparable architectural tier to C, Zig, and Rust—without leaving the V8 runtime.
 
 These results are reproducible, independently verifiable, and available for cleanroom reproduction in an isolated Docker environment.
 
@@ -839,7 +839,7 @@ Attempting to compile JavaScript to bare-metal intermediate representation (IR) 
 2. **Constrained Subsets & Custom Backends (AssemblyScript, Static Hermes, Porffor):** AssemblyScript compiles a strict subset of TypeScript, but targets WebAssembly (which still requires a VM sandboxed runtime). Static Hermes attempts Ahead-Of-Time (AOT) compilation for React Native, but still relies on a bundled garbage collector and JS runtime for dynamic features. Experimental projects like Porffor attempt pure native compilation, but remain in early research phases.
 
 **The Ohnrscript Difference (Pure AOT to LLVM)**
-Ohnrscript does not bundle V8, nor does it include a Garbage Collector. By enforcing strict, C-style memory constraints (e.g., locking variables to `i32` types and utilizing typed arrays) on standard JavaScript syntax, Ohnrscript mathematically maps AST nodes directly into raw LLVM instructions. When a compiled Ohnrscript binary executes, the CPU is processing pure ARM64/x86 assembly instructions with zero JavaScript engine overhead. This pure translation is the architectural foundation that enables the 7x–11x performance multipliers over the V8 JIT.
+Ohnrscript does not bundle V8, nor does it include a Garbage Collector. By enforcing strict, C-style memory constraints (e.g., locking variables to `i32` types and utilizing typed arrays) on standard JavaScript syntax, Ohnrscript maps AST nodes directly into raw LLVM instructions. When a compiled Ohnrscript binary executes, the CPU is processing pure ARM64/x86 assembly instructions with zero JavaScript engine overhead. This pure translation is the architectural foundation that enables the 7x–11x performance multipliers over the V8 JIT.
 ### Reproducibility
 
 ```bash
@@ -866,7 +866,7 @@ Traditional attempts at server-side or hardware-level JavaScript (like NodeOS, N
 
 Ohnrscript bypasses this entirely:
 1. **JavaScript Syntax**: The kernel logic is written in standard `.ohn` source files, fully readable as JavaScript.
-2. **LLVM IR Generation**: The Ohnrscript AST is mathematically mapped directly to LLVM Intermediate Representation. 
+2. **LLVM IR Generation**: The Ohnrscript AST is mapped directly to LLVM Intermediate Representation. 
 3. **Native Compilation**: We compile the LLVM IR using `clang -target x86_64-elf`, producing a pure, freestanding ELF object file.
 4. **Ring 0 Execution**: A minimal C boot shim (`boot.c`) provides the Multiboot2 header and stack setup, then calls directly into the Ohnrscript compiled `kernelMain()`. The ELF binary is booted via GRUB and executes directly on the metal (verified in QEMU emulator).
 
@@ -881,9 +881,9 @@ It achieves this with:
 When the CPU executes the kernel's `while` loop, it is executing raw `cmp` and `je` assembly instructions. When the kernel writes to the screen, it is executing a direct memory access instruction (`mov` to `0xB8000`) over the physical CPU bus. 
 
 ### Historical Significance
-This is the ultimate validation of Ohnrscript as a "holy grail" language. It proves that by strictly enforcing C-level memory constraints on JavaScript syntax (fixed integer casting, typed array boundaries), the language maps perfectly to the LLVM backend. 
+This validates Ohnrscript's viability as a systems-level language. It demonstrates that by strictly enforcing C-level memory constraints on JavaScript syntax (fixed integer casting, typed array boundaries), the language maps cleanly to the LLVM backend. 
 
-Ohnrscript provides the ergonomic reach of JavaScript for the frontend and backend, while now unequivocally proving it possesses the deterministic, hardware-level control of C, C++, and Rust for systems programming.
+Ohnrscript provides the ergonomic reach of JavaScript for the frontend and backend, while demonstrating it possesses the deterministic, hardware-level control required for systems programming.
 
 ---
 
@@ -914,6 +914,6 @@ To verify this groundbreaking achievement on your own machine:
 *(Above: The Ohnrscript kernel running natively in QEMU/SeaBIOS. The interactive keyboard loop and VGA memory rendering are driven entirely by compiled Ohnrscript, with zero JavaScript runtime or garbage collection.)*
 
 ### The Final Conclusion
-No matter what our benchmarks say about CPU cycles or memory throughput in user-space, the ability to boot an interactive operating system supersedes them all. It is the absolute, irrefutable proof of a language's systems-level capabilities. The JavaScript stigma is dead; Ohnrscript has successfully bridged the gap from the web to Ring 0 bare-metal execution.
+The ability to boot an interactive operating system from JavaScript syntax compiled through LLVM IR to bare metal is the strongest validation of the architectural decisions documented throughout this build history. Ohnrscript has bridged the gap from web development to Ring 0 bare-metal execution.
 
 ---

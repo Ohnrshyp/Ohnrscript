@@ -1,0 +1,34 @@
+// hello-world.ohn
+// Ohnrscript Example: Hello World
+//
+// The simplest valid Ohnrscript program. Demonstrates:
+//   - Function declaration
+//   - Integer arithmetic with | 0 casting
+//   - Return values
+//
+// Compile (V8):    node compiler/scripts/compile.js examples/hello-world.ohn
+// Compile (LLVM):  node compiler/scripts/compile.js --target llvm examples/hello-world.ohn
+// Run (V8):        node hello-world.js
+
+'use strict';
+
+// Every Ohnrscript function returns an i32.
+function add(a, b) {
+    return (a + b) | 0;
+}
+
+// Constants don't require | 0 — literal integers are already i32.
+const SCALE_FACTOR = 64;
+
+function scale(value) {
+    return (value * SCALE_FACTOR) | 0;
+}
+
+// Entry point — demonstrates calling functions.
+function main() {
+    let result = add(10, 20) | 0;       // → 30
+    let scaled = scale(result) | 0;     // → 1920
+    return scaled;
+}
+
+module.exports = { add, scale, main };

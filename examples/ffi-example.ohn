@@ -1,0 +1,58 @@
+// ffi-example.ohn
+// Ohnrscript Example: Foreign Function Interface (__extern)
+//
+// Demonstrates:
+//   - Binding to external C functions with __extern()
+//   - Calling hardware I/O instructions (for kernel/bare-metal)
+//   - Cross-module Ohnrscript function calls
+//   - How FFI declarations become LLVM IR 'declare' statements
+//
+// This file is for the LLVM backend only. It will not run on V8.
+//
+// Compile (LLVM):  node compiler/scripts/compile.js --target llvm examples/ffi-example.ohn
+
+'use strict';
+
+// ── Binding to C functions ──
+// __extern('symbol_name') creates a binding to an external C symbol.
+// The string argument is the exact symbol name the linker will resolve.
+
+const memset = __extern('memset');
+const ohn_alloc = __extern('ohn_alloc_f32');
+
+// ── Binding to hardware I/O (bare-metal / kernel context) ──
+// These are only available when running on ohn-kernel (no OS underneath).
+
+const inb = __extern('inb');
+const outb = __extern('outb');
+
+// ── Cross-module function calls ──
+// You can extern functions from other .ohn files that are linked together.
+
+const router_handle = __extern('router_handle');
+
+// ── Using FFI bindings ──
+
+function readPortStatus(port) {
+    // Read a byte from a hardware I/O port
+    let status = inb(port) | 0;
+    return status;
+}
+
+function writeToPort(port, value) {
+    // Write a byte to a hardware I/O port
+    outb(port, value);
+    return 0;
+}
+
+function handleRequest(method, route_hash, tx_buffer) {
+    // Dispatch to the router (defined in another .ohn module)
+    let response = router_handle(method, route_hash, tx_buffer) | 0;
+    return response;
+}
+
+module.exports = {
+    readPortStatus,
+    writeToPort,
+    handleRequest
+};

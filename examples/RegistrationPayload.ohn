@@ -1,3 +1,13 @@
+// RegistrationPayload.ohn
+// Ohnrscript Example: Production-Scale @cbor Schema
+//
+// This is a real-world example of a 40-field CBOR schema for music registration.
+// It demonstrates how Ohnrscript's @cbor decorator handles complex, production-scale
+// data models with mixed types (string, number, boolean) and a full constructor.
+//
+// When compiled with `npx ohnc`, the AOT compiler generates toCBOR()/fromCBOR()
+// methods that serialize/deserialize all 40 fields with zero runtime reflection.
+//
 // Auto-generated Ohnrscript Schema from mock-payload.json
 @cbor
 class RegistrationPayload {

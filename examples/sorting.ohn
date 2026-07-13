@@ -1,0 +1,103 @@
+// sorting.ohn
+// Ohnrscript Example: Integer Sorting Over a TypedArray
+//
+// Demonstrates:
+//   - In-place mutation of TypedArray buffers
+//   - Classic sorting algorithms in pure i32 arithmetic
+//   - Loop patterns with break and nested conditionals
+//   - How LLVM auto-vectorizes these loops on ARM64/x86-64
+//
+// Compile (LLVM):  node compiler/scripts/compile.js --target llvm examples/sorting.ohn
+
+'use strict';
+
+// ── Bubble Sort ──
+// In-place sort with early termination.
+// Uses a lastSwap tracker to shrink the comparison window each pass.
+
+function bubbleSort(arr, n) {
+    let end = (n - 1) | 0;
+    while (end > 0) {
+        let lastSwap = 0;
+        let i = 0;
+        while (i < end) {
+            let a = arr[i] | 0;
+            let next = (i + 1) | 0;
+            let b = arr[next] | 0;
+            if (a > b) {
+                // Swap in-place — no temp object, just i32 registers
+                arr[i] = b;
+                arr[next] = a;
+                lastSwap = i;
+            }
+            i = (i + 1) | 0;
+        }
+        end = lastSwap;
+    }
+    return 0;
+}
+
+// ── Insertion Sort ──
+// Optimal for small arrays. Shifts elements right to insert each value.
+
+function insertionSort(arr, n) {
+    let i = 1;
+    while (i < n) {
+        let key = arr[i] | 0;
+        let j = (i - 1) | 0;
+        while (j >= 0) {
+            let current = arr[j] | 0;
+            if (current > key) {
+                arr[(j + 1) | 0] = current;
+                j = (j - 1) | 0;
+            } else {
+                break;
+            }
+        }
+        arr[(j + 1) | 0] = key;
+        i = (i + 1) | 0;
+    }
+    return 0;
+}
+
+// ── Binary Search ──
+// O(log n) search on a sorted array. Returns index or -1.
+
+function binarySearch(arr, n, target) {
+    let lo = 0;
+    let hi = (n - 1) | 0;
+    while (lo <= hi) {
+        let mid = ((lo + hi) >>> 1) | 0;
+        let val = arr[mid] | 0;
+        if (val === target) {
+            return mid;
+        }
+        if (val < target) {
+            lo = (mid + 1) | 0;
+        } else {
+            hi = (mid - 1) | 0;
+        }
+    }
+    return -1;
+}
+
+// ── Linear Search ──
+// O(n) search. Returns index or -1.
+
+function linearSearch(arr, n, target) {
+    let i = 0;
+    while (i < n) {
+        if (arr[i] === target) {
+            return i;
+        }
+        i = (i + 1) | 0;
+    }
+    return -1;
+}
+
+module.exports = {
+    bubbleSort,
+    insertionSort,
+    binarySearch,
+    linearSearch
+};

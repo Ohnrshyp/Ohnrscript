@@ -1,0 +1,88 @@
+// http-parser.ohn
+// Ohnrscript Example: Parsing HTTP Methods from Raw Bytes
+//
+// Demonstrates:
+//   - String-free protocol parsing — the Ohnrscript way
+//   - Integer-cast method constants (little-endian)
+//   - Byte-level comparisons instead of string matching
+//
+// In Ohnrscript, you cannot use string.split() or regex.
+// Instead, you cast the first 4 bytes of the request into a single i32
+// and compare it against pre-computed integer constants.
+//
+// Compile: node compiler/scripts/compile.js examples/http-parser.ohn
+
+'use strict';
+
+// ── Pre-computed Method Constants (Little-Endian) ──
+//
+// "GET " → bytes [0x47, 0x45, 0x54, 0x20] → LE i32: 0x20544547
+// "POST" → bytes [0x50, 0x4F, 0x53, 0x54] → LE i32: 0x54534F50
+// "PUT " → bytes [0x50, 0x55, 0x54, 0x20] → LE i32: 0x20545550
+// "DELE" → bytes [0x44, 0x45, 0x4C, 0x45] → LE i32: 0x454C4544
+
+const METHOD_GET  = 0x20544547 | 0;   // 542393671
+const METHOD_POST = 0x54534F50 | 0;   // 1414745936
+const METHOD_PUT  = 0x20545550 | 0;   // 542462288
+const METHOD_DEL  = 0x454C4544 | 0;   // 1163149636
+
+// HTTP method identifiers (returned as i32 codes)
+const HTTP_GET    = 1;
+const HTTP_POST   = 2;
+const HTTP_PUT    = 3;
+const HTTP_DELETE = 4;
+const HTTP_UNKNOWN = 0;
+
+// Read a 32-bit unsigned integer (little-endian) from a byte buffer.
+function readUint32_LE(buffer, byteOffset) {
+    let b0 = buffer[byteOffset] | 0;
+    let b1 = buffer[(byteOffset + 1) | 0] | 0;
+    let b2 = buffer[(byteOffset + 2) | 0] | 0;
+    let b3 = buffer[(byteOffset + 3) | 0] | 0;
+    return ((b3 << 24) | (b2 << 16) | (b1 << 8) | b0) >>> 0;
+}
+
+// Parse the HTTP method from the first 4 bytes of a request buffer.
+// Returns an integer code: 1=GET, 2=POST, 3=PUT, 4=DELETE, 0=unknown
+function parseHttpMethod(buffer) {
+    let method_int = readUint32_LE(buffer, 0) | 0;
+
+    if (method_int === METHOD_GET) {
+        return HTTP_GET;
+    }
+    if (method_int === METHOD_POST) {
+        return HTTP_POST;
+    }
+    if (method_int === METHOD_PUT) {
+        return HTTP_PUT;
+    }
+    if (method_int === METHOD_DEL) {
+        return HTTP_DELETE;
+    }
+    return HTTP_UNKNOWN;
+}
+
+// Scan for end-of-line (CRLF) in a raw buffer.
+// Returns the byte offset of the newline, or -1 if not found.
+function scanForNewline(buffer, length) {
+    let i = 0;
+    while (i < length) {
+        let ch = buffer[i] | 0;
+        // 10 = '\n' (LF)
+        if (ch === 10) {
+            return i;
+        }
+        i = (i + 1) | 0;
+    }
+    return -1;
+}
+
+module.exports = {
+    parseHttpMethod,
+    scanForNewline,
+    HTTP_GET,
+    HTTP_POST,
+    HTTP_PUT,
+    HTTP_DELETE,
+    HTTP_UNKNOWN
+};

@@ -1,0 +1,30 @@
+// cbor-dynamic.ohn
+// Ohnrscript Example: @cbor Decorator — Dynamic-Length Fields
+//
+// Demonstrates:
+//   - CBOR Phase 2: support for variable-length fields (strings, arrays)
+//   - How the compiler handles `string` and `Array<number>` types
+//   - Dynamic-length CBOR encoding without heap allocation
+//
+// Unlike the simple cbor-schema.ohn example (Phase 1: fixed-size fields only),
+// this example uses Phase 2 of the CBOR AOT compiler, which supports
+// dynamically-sized fields: strings are UTF-8 encoded with length prefixes,
+// and arrays use CBOR major type 4.
+//
+// Compile (V8):  npx ohnc examples/cbor-dynamic.ohn
+//
+// Usage after compilation:
+//   const telemetry = new DeviceTelemetry();
+//   telemetry.deviceId = "sensor-001";
+//   telemetry.measurements = [23, 45, 67, 89];
+//   telemetry.firmwareVersion = "2.1.0";
+//   telemetry.isOnline = true;
+//   const buf = telemetry.toCBOR();
+
+@cbor
+class DeviceTelemetry {
+  deviceId: string;
+  measurements: Array<number>;
+  firmwareVersion: string;
+  isOnline: boolean;
+}

@@ -1,0 +1,28 @@
+// cbor-schema.ohn
+// Ohnrscript Example: @cbor Decorator — Simple Schema
+//
+// Demonstrates:
+//   - The @cbor decorator for AOT binary serialization
+//   - Declaring a schema with typed fields (boolean, number)
+//   - How the compiler injects toCBOR() and fromCBOR() methods at build time
+//
+// When compiled with `npx ohnc`, the @cbor decorator is stripped and replaced
+// with generated code that writes/reads CBOR binary directly — no runtime
+// reflection, no JSON overhead, no schema negotiation.
+//
+// Compile (V8):  npx ohnc examples/cbor-schema.ohn
+//
+// Usage after compilation:
+//   const status = new ServerStatus();
+//   status.isOnline = true;
+//   status.activeConnections = 42;
+//   status.uptimeSeconds = 86400;
+//   const buf = status.toCBOR();             // → Uint8Array (CBOR binary)
+//   const decoded = ServerStatus.fromCBOR(buf); // → ServerStatus instance
+
+@cbor
+class ServerStatus {
+  isOnline: boolean;
+  activeConnections: number;
+  uptimeSeconds: number;
+}

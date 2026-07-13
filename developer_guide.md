@@ -1,6 +1,6 @@
 # Ohnrscript Developer Guide & Language Reference
 
-> **Version:** 1.0 · **License:** Apache-2.0  
+> **Version:** 0.1.0 · **License:** [BUSL 1.1](LICENSE.md)  
 > Ohnrscript (`.ohn`) shares JavaScript's C-style syntax, but it is a fundamentally different language.  
 > It is an ahead-of-time (AOT) compiled systems language that compiles to LLVM IR and native machine code.
 

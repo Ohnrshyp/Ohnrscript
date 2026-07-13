@@ -235,10 +235,9 @@ clang -O3 -march=native hello-world.ll compiler/src/shim/ohnrscript-runtime.c -o
 
 | Resource | What You'll Learn |
 |---|---|
-| [Language Reference](language-reference.md) | Complete syntax reference — all 14 chapters |
+| [Developer Guide & Language Reference](../developer_guide.md) | Complete syntax reference — all 16 chapters |
 | [API Reference](api/) | Function signatures for every package |
 | [Examples](../examples/) | 10 documented, educational `.ohn` files |
-| [Developer Guide](../developer_guide.md) | Core DOD philosophy and constraints |
 | [ohn-kernel README](../packages-llvm/ohn-kernel/README.md) | How the bare-metal HTTP kernel works |
 | [Benchmark Results](../benchmarks/BENCHMARK_RESULTS.md) | Performance data vs V8, Bun, Go, Rust |
 

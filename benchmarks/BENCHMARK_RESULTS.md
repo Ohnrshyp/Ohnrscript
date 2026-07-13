@@ -2,7 +2,7 @@
 
 *Generated on June 30, 2026*
 
-## Overview & Design Principles
+## Abstract & First Principles Analysis
 
 > *This document traces Ohnrscript's performance journey from initial benchmarks through self-hosting and native LLVM compilation, providing detailed measurements at each stage.*
 

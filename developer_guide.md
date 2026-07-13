@@ -455,7 +455,7 @@ function scanForNewline(buffer, length) {
 
 ## 10. Classes & Methods
 
-Ohnrscript supports `class` declarations with constructors and methods. On the V8 backend, classes work with the `@cbor` and `@binaryLayout` decorators to generate zero-allocation data structures. On the LLVM backend, class support is limited to the parser — full native class codegen is on the roadmap.
+Ohnrscript supports `class` declarations with constructors and methods. On the V8 backend, classes work with the `@cbor` and `@binaryLayout` decorators to generate zero-allocation data structures. The LLVM backend parses class syntax but does not generate native code for classes — on the native target, you use `TypedArray` arenas and flat functions instead.
 
 ### Declaration
 

@@ -1,0 +1,27 @@
+'use strict';
+
+const METHOD_GET = 0x20544547;
+const METHOD_POST = 0x54534f50;
+const METHOD_PUT = 0x20545550;
+const METHOD_OK = 0x4b4f;
+const METHOD_X = 88;
+const CR = 13;
+const LF = 10;
+const SP = 32;
+const TAB = 9;
+const NULL_BYTE = 0;
+const LETTER_A = 65;
+const SLASH = 47;
+const BACKSLASH = 92;
+const three = 192;
+const half = 32;
+const quarter = 16;
+const one = 64;
+const zero = 0;
+const sys_kqueue_create = __extern('sys_kqueue_create');
+const ohn_socket_accept = __extern('sys_socket_accept');
+const MAX_CONN = 0x400;
+let fd_table = new Int32Array(MAX_CONN);
+let state_table = new Int32Array(MAX_CONN);
+let bytes_read = new Int32Array(0x1000);
+let response_buffer = new Int32Array(0x100);

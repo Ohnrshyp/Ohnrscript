@@ -859,11 +859,14 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
 
         // ── ConditionalExpression (0x1C) — ternary ? : ──
         if (base === NODE_CONDITIONAL_EXPRESSION) {
-            walk(d1, 0); // condition
+            const need_parens = parent_prec > 0;
+            if (need_parens) emitter.emit(CH_LPAREN, 0, CH_LPAREN.length);
+            walk(d1, 4); // condition
             emitter.emit(CH_QUESTION_SPACE, 0, CH_QUESTION_SPACE.length);
-            walk(ast_extra[d2] | 0, 0); // consequent
+            walk(ast_extra[d2] | 0, 4); // consequent
             emitter.emit(CH_COLON_SPACE, 0, CH_COLON_SPACE.length);
-            walk(ast_extra[(d2 + 1) | 0] | 0, 0); // alternate
+            walk(ast_extra[(d2 + 1) | 0] | 0, 4); // alternate
+            if (need_parens) emitter.emit(CH_RPAREN, 0, CH_RPAREN.length);
             return;
         }
     }

@@ -11,10 +11,12 @@
 // ============================================================
 
 // --- Atoms ---
-const TOKEN_EOF         = 0;
-const TOKEN_IDENTIFIER  = 1;
-const TOKEN_NUMBER      = 2;
-const TOKEN_STRING      = 3;
+const TOKEN_EOF             = 0;
+const TOKEN_IDENTIFIER      = 1;
+const TOKEN_NUMBER          = 2;
+const TOKEN_STRING          = 3;
+const TOKEN_INT_CAST_STRING = 4;  // #'GET ' — compile-time ASCII→i32
+const TOKEN_BYTE_CHAR       = 5;  // ch'\n' — compile-time char→code point
 
 // --- Keywords ---
 const TOKEN_CONST       = 10;
@@ -37,6 +39,8 @@ const TOKEN_NULL        = 26;
 const TOKEN_UNDEFINED   = 27;
 const TOKEN_TYPEOF      = 28;
 const TOKEN_THIS        = 29;
+const TOKEN_EXTERN      = 30;  // extern — foreign function binding
+const TOKEN_SLOTS       = 31;  // slots — pre-allocated DOD buffer
 
 // --- Single-character punctuation ---
 const TOKEN_ASSIGN      = 40;  // =
@@ -516,6 +520,38 @@ function scan_token(typeSlot, startSlot, lengthSlot) {
         return;
     }
 
+    // ── Integer-Cast String Literal: #'GET ' ──
+    // Emits TOKEN_INT_CAST_STRING with start/length pointing at the char content.
+    // The parser computes the LE i32 value from up to 4 characters.
+    if (ch === 35) { // '#'
+        if (cursor + 1 < source_length) {
+            const next_ch = source[(cursor + 1) | 0] | 0;
+            if (next_ch === CH_SQUOTE || next_ch === CH_DQUOTE) {
+                const iq = next_ch | 0;
+                cursor = (cursor + 2) | 0; // skip '#' and opening quote
+                const ics_start = cursor | 0;
+
+                while (cursor < source_length) {
+                    const ic = source[cursor] | 0;
+                    if (ic === CH_BACKSLASH) {
+                        cursor = (cursor + 2) | 0;
+                        continue;
+                    }
+                    if (ic === iq) {
+                        break;
+                    }
+                    cursor = (cursor + 1) | 0;
+                }
+
+                const ics_length = (cursor - ics_start) | 0;
+                cursor = (cursor + 1) | 0; // skip closing quote
+
+                emit_token(typeSlot, startSlot, lengthSlot, TOKEN_INT_CAST_STRING, ics_start | 0, ics_length | 0);
+                return;
+            }
+        }
+    }
+
     // ── String Literal (double or single quote) ──
     if (ch === CH_DQUOTE || ch === CH_SQUOTE) {
         const quote = ch | 0;
@@ -589,6 +625,39 @@ function scan_token(typeSlot, startSlot, lengthSlot) {
             cursor = (cursor + 1) | 0;
         }
         const id_length = (cursor - start) | 0;
+
+        // ── Byte Character Literal: ch'A' ──
+        // If the identifier is exactly 'ch' and the next char is a quote (no space),
+        // scan the single character and emit TOKEN_BYTE_CHAR.
+        if (id_length === 2 &&
+            (source[start] | 0) === 99 &&          // 'c'
+            (source[(start + 1) | 0] | 0) === 104) { // 'h'
+            if (cursor < source_length) {
+                const bq = source[cursor] | 0;
+                if (bq === CH_SQUOTE || bq === CH_DQUOTE) {
+                    cursor = (cursor + 1) | 0; // skip opening quote
+                    const bch_start = cursor | 0;
+
+                    while (cursor < source_length) {
+                        const bc = source[cursor] | 0;
+                        if (bc === CH_BACKSLASH) {
+                            cursor = (cursor + 2) | 0;
+                            continue;
+                        }
+                        if (bc === bq) {
+                            break;
+                        }
+                        cursor = (cursor + 1) | 0;
+                    }
+
+                    const bch_length = (cursor - bch_start) | 0;
+                    cursor = (cursor + 1) | 0; // skip closing quote
+
+                    emit_token(typeSlot, startSlot, lengthSlot, TOKEN_BYTE_CHAR, bch_start | 0, bch_length | 0);
+                    return;
+                }
+            }
+        }
 
         // Zero-allocation keyword matching: check by length, then exact bytes
         const kw = match_keyword(start | 0, id_length | 0);
@@ -693,6 +762,8 @@ function match_keyword(start, length) {
         if (c0 === 99 && c1 === 108 && c2 === 97 && c3 === 115 && c4 === 115) return TOKEN_CLASS;
         // "false" = 102, 97, 108, 115, 101
         if (c0 === 102 && c1 === 97 && c2 === 108 && c3 === 115 && c4 === 101) return TOKEN_FALSE;
+        // "slots" = 115, 108, 111, 116, 115
+        if (c0 === 115 && c1 === 108 && c2 === 111 && c3 === 116 && c4 === 115) return TOKEN_SLOTS;
     }
 
     // ── Length 6 ──
@@ -708,6 +779,8 @@ function match_keyword(start, length) {
         if (c0 === 114 && c1 === 101 && c2 === 116 && c3 === 117 && c4 === 114 && c5 === 110) return TOKEN_RETURN;
         // "typeof" = 116, 121, 112, 101, 111, 102
         if (c0 === 116 && c1 === 121 && c2 === 112 && c3 === 101 && c4 === 111 && c5 === 102) return TOKEN_TYPEOF;
+        // "extern" = 101, 120, 116, 101, 114, 110
+        if (c0 === 101 && c1 === 120 && c2 === 116 && c3 === 101 && c4 === 114 && c5 === 110) return TOKEN_EXTERN;
     }
 
     // ── Length 8 ──
@@ -766,6 +839,7 @@ module.exports = {
 
     // Token Enums — Atoms
     TOKEN_EOF, TOKEN_IDENTIFIER, TOKEN_NUMBER, TOKEN_STRING,
+    TOKEN_INT_CAST_STRING, TOKEN_BYTE_CHAR,
 
     // Token Enums — Keywords
     TOKEN_CONST, TOKEN_LET, TOKEN_VAR,
@@ -773,6 +847,7 @@ module.exports = {
     TOKEN_RETURN, TOKEN_NEW, TOKEN_THROW, TOKEN_CONTINUE, TOKEN_BREAK,
     TOKEN_CLASS, TOKEN_TRUE, TOKEN_FALSE, TOKEN_NULL, TOKEN_UNDEFINED,
     TOKEN_TYPEOF, TOKEN_THIS,
+    TOKEN_EXTERN, TOKEN_SLOTS,
 
     // Token Enums — Punctuation
     TOKEN_ASSIGN, TOKEN_DOT, TOKEN_LPAREN, TOKEN_RPAREN,

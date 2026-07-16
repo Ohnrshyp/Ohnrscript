@@ -1,0 +1,45 @@
+// test/sugar/sugar_test.ohn
+// Tests all 5 Level 1 syntactic sugar features
+// Compile with: node compiler/scripts/compile.js compiler/tests/sugar_test.ohn
+
+// ── 1. Integer-Cast String Literal: #'...' ──
+// Encodes up to 4 ASCII chars into an LE i32 at compile time.
+const METHOD_GET  = #'GET ';
+const METHOD_POST = #'POST';
+const METHOD_PUT  = #'PUT ';
+const METHOD_OK   = #'OK';
+const METHOD_X    = #'X';
+
+// ── 2. Byte Character Literal: ch'...' ──
+// Resolves a single ASCII character to its code point.
+const CR = ch'\r';
+const LF = ch'\n';
+const SP = ch' ';
+const TAB = ch'\t';
+const NULL_BYTE = ch'\0';
+const LETTER_A = ch'A';
+const SLASH = ch'/';
+const BACKSLASH = ch'\\';
+
+// ── 3. Fixed-Point Literals: Nfp ──
+// Encodes decimal values in 26+6 (multiply by 64) format.
+const three = 3.0fp;
+const half = 0.5fp;
+const quarter = 0.25fp;
+const one = 1.0fp;
+const zero = 0.0fp;
+
+// ── 4. Extern Declarations ──
+// Simple form: name matches C symbol
+extern sys_kqueue_create;
+
+// Aliased form: Ohnrscript name differs from C symbol
+extern ohn_socket_accept = 'sys_socket_accept';
+
+// ── 5. Slots Declarations ──
+// Declares pre-allocated Int32Array buffers.
+const MAX_CONN = 1024;
+slots[MAX_CONN] fd_table;
+slots[MAX_CONN] state_table;
+slots[4096] bytes_read;
+slots[256] response_buffer;

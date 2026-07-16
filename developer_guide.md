@@ -75,6 +75,9 @@ let flags = 0xFF;
 |---|---|---|
 | Decimal | `42`, `1000`, `-1` | Standard base-10 |
 | Hexadecimal | `0xFF`, `0x1F7`, `0x80` | Prefix `0x` — used extensively for byte constants, port addresses, and bitmasks |
+| Integer-Cast String | `#'GET '`, `#'OK'` | Converts 1-4 ASCII characters into their little-endian i32 integer representation at compile time |
+| Byte Character | `ch'\n'`, `ch'A'` | Syntactic sugar for the ASCII byte value of a single character |
+| Fixed-Point | `3.0fp`, `0.5fp` | Represents Q26.6 fixed-point math at compile time (e.g. `1.0fp` compiles to `64`) |
 
 ### Boolean Values
 
@@ -163,7 +166,10 @@ Because there is no Garbage Collector (GC), you cannot allocate memory dynamical
 ### Allocation
 
 ```ohnrscript
-// Allocate a 4096-element Int32Array (16KB)
+// Syntactic sugar: allocate a 4096-element Int32Array (16KB)
+slots[4096] buffer;
+
+// Explicit allocation (equivalent to above)
 let buffer = new Int32Array(4096);
 
 // Allocate a raw byte buffer
@@ -523,10 +529,15 @@ The `__extern()` directive binds an Ohnrscript identifier to an external C funct
 
 ### Syntax
 
+You can bind to external C functions using the `extern` keyword syntactic sugar, or the `__extern()` directive for aliasing:
+
 ```ohnrscript
-// Bind to an external C function
-const ohn_inb = __extern('inb');
-const ohn_outb = __extern('outb');
+// Syntactic sugar: desugars to `const inb = __extern('inb');`
+extern inb;
+extern outb;
+
+// Explicit aliasing: bind C symbol 'sys_socket' to Ohnrscript identifier 'socket'
+const socket = __extern('sys_socket');
 
 // Call like a regular function
 let status = ohn_inb(0x1F7) | 0;

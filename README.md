@@ -1,4 +1,24 @@
-# Ohnrscript: Web-Native Syntax At Bare Metal Speed
+<p align="center">
+  <img src="docs/ohn-logo.svg" alt="ohnrscript logo" width="150" />
+</p>
+
+<h1 align="center">Ohnrscript</h1>
+
+<p align="center">
+  <strong>Web-Native Syntax At Bare Metal Speed</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ohnrshyp/ohnrscript/actions/workflows/ci.yml">
+    <img src="https://github.com/ohnrshyp/ohnrscript/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+  <a href="https://ohnrshyp.com">
+    <img src="https://img.shields.io/badge/docs-ohnrshyp.com-blue.svg?style=flat-square" alt="Documentation" />
+  </a>
+  <img src="https://img.shields.io/badge/version-v1.0.0-blue.svg?style=flat-square" alt="Version 1.0.0" />
+  <img src="https://img.shields.io/badge/language-Javascript%20%7C%20LLVM-orange.svg?style=flat-square" alt="Language JS/LLVM" />
+  <img src="https://img.shields.io/badge/status-Stable-success.svg?style=flat-square" alt="Status Stable" />
+</p>
 
 **Ohnrscript** (`.ohn`) is a Turing-complete dual compiling language, Ahead-Of-Time (AOT) compiler, and operating system stack built entirely from scratch. (`.ohn`) files can compile to either LLVM IR or highly-optimized JavaScript Syntax for the *V8 Engine*.
 

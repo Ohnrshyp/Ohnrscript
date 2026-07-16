@@ -1,19 +1,34 @@
 {
   "name": "ohnrscript-language-support",
   "displayName": "Ohnrscript",
-  "description": "Language support for Ohnrscript (.ohn)",
-  "version": "0.1.0",
+  "description": "Official syntax highlighting, IntelliSense, and language server support for the Ohnrscript programming language.",
+  "version": "0.2.0",
+  "publisher": "ohnrshyp",
+  "icon": "ohn-icon.png",
+  "main": "./extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ohnrshyp/ohnrscript"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
+  "activationEvents": [
+    "onLanguage:ohnrscript"
+  ],
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters",
+    "Formatters"
   ],
   "contributes": {
     "languages": [
       {
         "id": "ohnrscript",
-        "aliases": ["Ohnrscript", "ohn"],
+        "aliases": [
+          "Ohnrscript",
+          "ohn"
+        ],
         "extensions": [
           ".ohn"
         ],
@@ -30,5 +45,8 @@
         "path": "./syntaxes/ohnrscript.tmLanguage.json"
       }
     ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

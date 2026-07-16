@@ -1,0 +1,89 @@
+name: Ohnrscript CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ──────────────────────────────────────────────────
+  # 1. Unit Tests — Parser, Arena, Emitter, Core
+  # ──────────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Compiler Tests
+        run: npx jest compiler/tests/ --ci --forceExit
+
+      - name: Run Core Tests
+        run: npx jest core/tests/ --ci --forceExit
+
+  # ──────────────────────────────────────────────────
+  # 2. Self-Hosting Bootstrap — The Tombstone Protocol
+  # ──────────────────────────────────────────────────
+  bootstrap:
+    name: Self-Hosting Verification
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Tombstone Bootstrap Protocol
+        run: node --stack-size=65536 compiler/scripts/bootstrap.js
+
+  # ──────────────────────────────────────────────────
+  # 3. Compiler Smoke Test — Compile example files
+  # ──────────────────────────────────────────────────
+  compile:
+    name: Compilation Smoke Test
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Compile Example Files
+        run: |
+          for f in examples/*.ohn; do
+            if [ -f "$f" ]; then
+              echo "Compiling: $f"
+              node core/bin/ohnc.js "$f"
+            fi
+          done
+          echo "All example files compiled successfully."

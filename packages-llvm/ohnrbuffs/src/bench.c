@@ -47,7 +47,7 @@ int main() {
     mtime = ((seconds) * 1000 + useconds/1000.0) + 0.5;
     
     printf("Ohnrbuffs Native (LLVM) Decoder Benchmark\n");
-    printf("Iterations: %d\n", iterations);
+    printf("Iterations: %lld\n", iterations);
     printf("Total Execution Time: %ld ms\n", mtime);
     printf("Checksum (prevent DCE): %d\n", final_checksum);
     

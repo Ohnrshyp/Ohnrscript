@@ -11,10 +11,11 @@ permissions:
 
 jobs:
   # ──────────────────────────────────────────────────
-  # 1. Unit Tests — Parser, Arena, Emitter, Core
+  # 1. Compiler Tests — Parser, Generator, Sugar
+  #    These are standalone Node scripts, not Jest.
   # ──────────────────────────────────────────────────
   test:
-    name: Unit Tests
+    name: Compiler Tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -31,10 +32,16 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Compiler Tests
-        run: npx jest compiler/tests/ --ci --forceExit
+      - name: Parser Test (zero-allocation verification)
+        run: node --expose-gc compiler/tests/parser.test.js
 
-      - name: Run Core Tests
+      - name: Generator Test (parse → codegen → execute)
+        run: node compiler/tests/generator_test.js
+
+      - name: Syntactic Sugar Verification
+        run: node compiler/tests/sugar_verify.js
+
+      - name: Core Unit Tests (Jest)
         run: npx jest core/tests/ --ci --forceExit
 
   # ──────────────────────────────────────────────────

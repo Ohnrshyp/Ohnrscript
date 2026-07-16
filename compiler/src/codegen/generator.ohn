@@ -892,51 +892,61 @@ function generate(ast_nodes, ast_extra, intern_pool, root_index, outputPath) {
     // ============================================================
     // walk_if_continuation(idx) — emit an 'if' without leading indent
     // Used for else-if chains to emit on same line as } else
+    // Iterative (not recursive) to handle arbitrarily deep else-if chains
+    // without blowing the call stack.
     // ============================================================
-    function walk_if_continuation(idx) {
-        idx = idx | 0;
-        const tf = ast_nodes[idx] | 0;
-        const d1 = ast_nodes[(idx + 2) | 0] | 0;
-        const d2 = ast_nodes[(idx + 3) | 0] | 0;
+    function walk_if_continuation(start_idx) {
+        let idx = start_idx | 0;
 
-        emitter.emit(KW_IF, 0, KW_IF.length);
-        walk(d1, 0); // condition
-        emitter.emit(CH_RPAREN_LBRACE, 0, CH_RPAREN_LBRACE.length);
+        while (idx >= 0) {
+            const tf = ast_nodes[idx] | 0;
+            const d1 = ast_nodes[(idx + 2) | 0] | 0;
+            const d2 = ast_nodes[(idx + 3) | 0] | 0;
 
-        const consequent = ast_extra[d2] | 0;
-        const alternate = ast_extra[(d2 + 1) | 0] | 0;
+            emitter.emit(KW_IF, 0, KW_IF.length);
+            walk(d1, 0); // condition
+            emitter.emit(CH_RPAREN_LBRACE, 0, CH_RPAREN_LBRACE.length);
 
-        indent_level = (indent_level + 1) | 0;
-        const cons_base = ast_nodes[consequent] & 0xFF;
-        if (cons_base === NODE_BLOCK_STATEMENT) {
-            walk_block_body(consequent);
-        } else {
-            walk(consequent, 0);
-        }
-        indent_level = (indent_level - 1) | 0;
+            const consequent = ast_extra[d2] | 0;
+            const alternate = ast_extra[(d2 + 1) | 0] | 0;
 
-        if (alternate >= 0) {
-            const alt_base = ast_nodes[alternate] & 0xFF;
-            if (alt_base === NODE_IF_STATEMENT) {
-                emit_indent();
-                emitter.emit(Buffer.from('} else '), 0, 7);
-                walk_if_continuation(alternate);
+            indent_level = (indent_level + 1) | 0;
+            const cons_base = ast_nodes[consequent] & 0xFF;
+            if (cons_base === NODE_BLOCK_STATEMENT) {
+                walk_block_body(consequent);
             } else {
-                emit_indent();
-                emitter.emit(Buffer.from('} else {\n'), 0, 9);
-                indent_level = (indent_level + 1) | 0;
-                if (alt_base === NODE_BLOCK_STATEMENT) {
-                    walk_block_body(alternate);
+                walk(consequent, 0);
+            }
+            indent_level = (indent_level - 1) | 0;
+
+            if (alternate >= 0) {
+                const alt_base = ast_nodes[alternate] & 0xFF;
+                if (alt_base === NODE_IF_STATEMENT) {
+                    // else if — continue the loop instead of recursing
+                    emit_indent();
+                    emitter.emit(Buffer.from('} else '), 0, 7);
+                    idx = alternate | 0;
                 } else {
-                    walk(alternate, 0);
+                    // final else block — emit and stop
+                    emit_indent();
+                    emitter.emit(Buffer.from('} else {\n'), 0, 9);
+                    indent_level = (indent_level + 1) | 0;
+                    if (alt_base === NODE_BLOCK_STATEMENT) {
+                        walk_block_body(alternate);
+                    } else {
+                        walk(alternate, 0);
+                    }
+                    indent_level = (indent_level - 1) | 0;
+                    emit_indent();
+                    emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+                    break;
                 }
-                indent_level = (indent_level - 1) | 0;
+            } else {
+                // no else — close the brace and stop
                 emit_indent();
                 emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
+                break;
             }
-        } else {
-            emit_indent();
-            emitter.emit(CH_RBRACE_NL, 0, CH_RBRACE_NL.length);
         }
     }
 

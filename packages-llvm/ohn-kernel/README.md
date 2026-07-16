@@ -1,6 +1,6 @@
-# Ohnrscript Kernel v1.0
+# Ohn-Kernel v1.0
 
-**The first HTTP-serving unikernel compiled from JavaScript syntax to bare-metal x86 machine code via LLVM IR — no JavaScript runtime, no garbage collector, no operating system.**
+**The first HTTP-serving unikernel compiled from JavaScript syntax to bare-metal x86 machine code via LLVM IR — no JavaScript runtime, no garbage collector, no separate operating system.**
 
 ---
 
@@ -264,4 +264,4 @@ On August 25, 1991, Linus Torvalds posted:
 
 What he released was a kernel — not a full OS. It booted, managed hardware, ran programs. That was enough.
 
-Ohnrscript Kernel v1.0 is the same category of moment for JavaScript-native systems programming: proof that the compilation path works, that JavaScript syntax can produce ring-0 native machine code, and that a unikernel written in JavaScript syntax — compiled without a JavaScript engine — is not a theoretical possibility but a demonstrated, curl-able fact.
+Ohn-Kernel v1.0 is the same category of moment for JavaScript-native systems programming: proof that the compilation path works, that JavaScript syntax can produce ring-0 native machine code, and that a unikernel written in JavaScript syntax — compiled without a JavaScript engine — is not a theoretical possibility but a demonstrated, curl-able fact.

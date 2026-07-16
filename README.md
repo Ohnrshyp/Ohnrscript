@@ -1,8 +1,7 @@
-<p align="center">
-  <img src="docs/ohn-logo.svg" alt="ohnrscript logo" width="150" />
-</p>
-
-<h1 align="center">Ohnrscript</h1>
+<div align="center">
+  <img src="docs/ohn-logo.png" alt="Ohnrscript Logo" width="128" height="128" />
+  <h1>Ohnrscript</h1>
+</div>
 
 <p align="center">
   <strong>Web-Native Syntax At Bare Metal Speed</strong>

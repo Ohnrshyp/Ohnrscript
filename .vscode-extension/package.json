@@ -2,7 +2,7 @@
   "name": "ohnrscript-language-support",
   "displayName": "Ohnrscript",
   "description": "Official syntax highlighting, IntelliSense, and language server support for the Ohnrscript programming language.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "ohnrshyp",
   "icon": "ohn-icon.png",
   "main": "./extension.js",

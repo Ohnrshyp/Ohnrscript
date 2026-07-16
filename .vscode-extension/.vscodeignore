@@ -1,0 +1,5 @@
+.vscode/**
+.vscode-test/**
+**/*.vsix
+build-icon.js
+ohn-icon-128.png

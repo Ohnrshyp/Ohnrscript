@@ -273,7 +273,7 @@ If your organization exceeds the $500k threshold or violates the exemptions abov
 - **Ohnrscript Language (Compiler & Library):** Available via an annual subscription fee.
 - **Ohn-Kernel:** Available on a per-server deployment basis. 
 
-*To view our pricing tiers or purchase a Commercial License, please visit [ohnrscript.com/pricing](https://ohnrscript.com/pricing).*
+*To view our pricing tiers or purchase a Commercial License, please visit [[ohnrshyp.com/#/connect](https://ohnrshyp.com/#/connect)].*
 *For inquiries, contact [support@ohnrshyp.com](mailto:support@ohnrshyp.com).*
 
 ### The Open-Source Change Date

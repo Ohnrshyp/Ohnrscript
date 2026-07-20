@@ -26,7 +26,7 @@ BIN_DIR="${OHNRSCRIPT_BIN_DIR:-$HOME/.local/bin}"
 
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}║              Ohnrscript Installer v1.0.0                ║${RESET}"
+echo -e "${CYAN}${BOLD}║              Ohnrscript Installer v0.8.2                ║${RESET}"
 echo -e "${CYAN}${BOLD}║     Web-Native Syntax At Bare Metal Speed               ║${RESET}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
 echo ""

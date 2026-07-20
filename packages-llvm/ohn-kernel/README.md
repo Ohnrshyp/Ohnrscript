@@ -1,4 +1,4 @@
-# Ohn-Kernel v1.0
+# Ohn-Kernel v0.5.7
 
 **The first HTTP-serving unikernel compiled from JavaScript syntax to bare-metal x86 machine code via LLVM IR — no JavaScript runtime, no garbage collector, no separate operating system.**
 
@@ -30,7 +30,7 @@ No LLVM, no QEMU install, no build tools required. Docker handles everything.
 
 ## The Claim
 
-> *"Ohnrscript Kernel v1.0 is the first HTTP-serving unikernel compiled from JavaScript syntax to LLVM IR to bare-metal x86 native machine code, executing in ring 0 without a JavaScript runtime, garbage collector, or operating system."*
+> *"Ohnrscript Kernel v0.5.7 is the first HTTP-serving unikernel compiled from JavaScript syntax to LLVM IR to bare-metal x86 native machine code, executing in ring 0 without a JavaScript runtime, garbage collector, or operating system."*
 
 This claim is precise and defensible:
 
@@ -240,7 +240,7 @@ SeaBIOS → Multiboot → _start (boot.o)
 
 ---
 
-## The Path from v0.1 to v1.0
+## The Path from v0.1 to v0.5.7
 
 v0.1 was a proof-of-concept that cleared the VGA buffer and wrote a boot banner. Since then:
 
@@ -264,4 +264,4 @@ On August 25, 1991, Linus Torvalds posted:
 
 What he released was a kernel — not a full OS. It booted, managed hardware, ran programs. That was enough.
 
-Ohn-Kernel v1.0 is the same category of moment for JavaScript-native systems programming: proof that the compilation path works, that JavaScript syntax can produce ring-0 native machine code, and that a unikernel written in JavaScript syntax — compiled without a JavaScript engine — is not a theoretical possibility but a demonstrated, curl-able fact.
+Ohn-Kernel v0.5.7 is the same category of moment for JavaScript-native systems programming: proof that the compilation path works, that JavaScript syntax can produce ring-0 native machine code, and that a unikernel written in JavaScript syntax — compiled without a JavaScript engine — is not a theoretical possibility but a demonstrated, curl-able fact.

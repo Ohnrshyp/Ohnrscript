@@ -7,13 +7,13 @@ Because Ohnrscript is licensed under the **Business Source License 1.1 (BUSL)**,
 Please read this document carefully before opening an Issue or Pull Request.
 
 > [!WARNING]
-> By submitting a Pull Request, you agree that your contribution is subject to our Contributor License Agreement (CLA). We cannot accept any code without a signed CLA.
+> During our initial launch phase, we are accepting Issues and bug reports while finalizing our automated CLA workflow. External Pull Requests requiring code merges will be enabled once our CLA process is live.
 
-## 1. Contributor License Agreement (CLA)
+## 1. Contributor License Agreement (CLA) & Governance
 
 To ensure that the Ohnrscript Authors can legally re-license the software for commercial enterprise customers and seamlessly transition the codebase to MPL-2.0 on the Change Date, **we must retain clear copyright governance over the entire codebase.**
 
-When you submit your first Pull Request, our automated CLA bot will prompt you to sign the Ohnrscript CLA. This agreement grants the Licensor an irrevocable, broad license to use, modify, and commercialize your contribution.
+We are currently finalizing our automated CLA integration. In the interim, please open an Issue to discuss any features or bug fixes before submitting code. Contributions submitted once PRs are opened will require a signed CLA granting the Licensor rights to use, modify, and commercialize the contribution under BUSL 1.1.
 
 ## 2. The "Clean Room" Rule (No Copyleft Code)
 

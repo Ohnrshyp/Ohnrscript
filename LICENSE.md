@@ -7,17 +7,13 @@ Parameters
 
 Licensor: The Ohnrscript Authors
 Licensed Work: The Ohnrscript Compiler, Standard Library, and Ohn-Kernel.
-Additional Use Grant: 
-You may make use of the Licensed Work for non-production purposes, including testing, development, and research. 
-
-Additional Use Grants
-
-You may make use of the Licensed Work for production purposes, provided that you meet ALL of the following conditions:
+Additional Use Grant: You may make use of the Licensed Work for production purposes, provided that you meet ALL of the following conditions:
 1. Revenue Exemption: Your entity (including all affiliates) has less than $500,000 USD in total gross annual revenue and total raised capital.
 2. Competitive Service Restriction: You do not use the Licensed Work to provide a managed service, Platform-as-a-Service (PaaS), Database-as-a-Service (DBaaS), or any commercial offering where the primary value provided to third parties is access to the Ohnrscript Compiler, Ohn-Kernel, or related compilation/execution services. 
-3. Hardware Restriction: The rights granted under this License (including non-production use) are immediately and automatically revoked if the Licensee, or any affiliate of the Licensee, manufactures, sells, or distributes custom physical hardware or silicon designed to accelerate or natively execute the Licensed Work without an explicit, separate Commercial Hardware Agreement from the Licensor.
+3. Hardware Restriction: Neither your entity nor any affiliate manufactures, sells, or distributes custom physical hardware or silicon designed to accelerate or natively execute the Licensed Work.
 
-If your use cases exceed these thresholds or violate these restrictions, any production use of the Licensed Work requires a Commercial License from the Licensor. Commercial Licenses for the Ohnrscript Language (Compiler and Library) are available via an annual subscription fee. Commercial Licenses for the Ohn-Kernel are available on a per-server basis.
+Production use by entities exceeding the $500,000 USD revenue or raised capital threshold requires a standard Commercial License from the Licensor. Standard Commercial Licenses ONLY grant a waiver for the $500,000 USD revenue/capital threshold and DO NOT grant rights to offer managed competitive services or custom physical hardware/silicon, which require an explicit, separate bespoke agreement directly from the Licensor.
+
 Change Date: July 8, 2031
 Change License: Mozilla Public License, version 2.0 (MPL-2.0)
 

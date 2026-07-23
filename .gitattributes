@@ -1,1 +1,5 @@
 *.ohn linguist-language=JavaScript linguist-vendored
+*.sh text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+Dockerfile text eol=lf

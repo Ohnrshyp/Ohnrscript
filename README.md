@@ -269,12 +269,14 @@ You may use Ohnrscript in production completely for free if your organization me
 3. You are not building custom physical silicon or hardware to natively accelerate Ohnrscript. 
 
 ### Enterprise Commercial Licenses
-If your organization exceeds the $500k threshold or violates the exemptions above, you must purchase a commercial license for production use:
-- **Ohnrscript Language (Compiler & Library):** Available via an annual subscription fee.
+If your organization exceeds the **$500,000 USD** gross annual revenue / total raised capital threshold, you must purchase an Enterprise Commercial License for production use:
+- **Ohnrscript Language (Compiler & Library):** Available via an annual subscription fee based on revenue tier.
 - **Ohn-Kernel:** Available on a per-server deployment basis. 
 
+*Note: Standard Commercial Licenses only grant production rights for organizations exceeding the $500k threshold. They do **not** grant rights to offer managed competitive services (e.g., PaaS or DBaaS based on Ohnrscript) or manufacture custom hardware/silicon natively accelerating Ohnrscript. Such use cases are strictly excluded from standard commercial licenses and require a separate, custom agreement.*
+
 *To view our pricing tiers or purchase a Commercial License, please visit [[ohnrshyp.com/#/connect](https://ohnrshyp.com/#/connect)].*
-*For inquiries, contact [support@ohnrshyp.com](mailto:support@ohnrshyp.com).*
+*For inquiries or custom licensing, contact [support@ohnrshyp.com](mailto:support@ohnrshyp.com).*
 
 ### The Open-Source Change Date
 Exactly 5 years from today (**July 8, 2031**), this version of the Ohnrscript toolchain will automatically transition to the **Mozilla Public License, version 2.0 (MPL-2.0)**, becoming true Open Source Software.

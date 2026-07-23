@@ -103,11 +103,7 @@ Compile and test:
 
 ```bash
 node compiler/scripts/compile.js my-buffer.ohn
-node -e "
-const m = require('./my-buffer.js');
-const buf = new Uint8Array([0x01, 0xF4]);
-console.log('Read:', m.readUint16_BE(buf, 0));
-"
+node -e "const m = require('./my-buffer.js'); const buf = new Uint8Array([0x01, 0xF4]); console.log('Read:', m.readUint16_BE(buf, 0));"
 ```
 
 Expected output:
@@ -153,13 +149,7 @@ Compile and test:
 
 ```bash
 node compiler/scripts/compile.js my-parser.ohn
-node -e "
-const m = require('./my-parser.js');
-const get = Buffer.from('GET /index.html HTTP/1.1');
-const post = Buffer.from('POST /api/data HTTP/1.1');
-console.log('GET?', m.isGetRequest(get));
-console.log('POST?', m.isGetRequest(post));
-"
+node -e "const m = require('./my-parser.js'); const get = Buffer.from('GET /index.html HTTP/1.1'); const post = Buffer.from('POST /api/data HTTP/1.1'); console.log('GET?', m.isGetRequest(get)); console.log('POST?', m.isGetRequest(post));"
 ```
 
 Expected output:
@@ -174,14 +164,10 @@ POST? 0
 
 ## Step 4: Using a Package
 
-Ohnrscript has a standard library of zero-allocation packages. Let's use `ohn-uuid`:
+Ohnrscript packages include both `.ohn` source files and pre-compiled `.js` output files in `src/`. You can use the pre-compiled `ohn-uuid.js` directly, or re-compile `ohn-uuid.ohn` yourself (`node compiler/scripts/compile.js packages/ohn-uuid/src/ohn-uuid.ohn`). Let's run `ohn-uuid`:
 
 ```bash
-node -e "
-const uuid = require('./packages/ohn-uuid/src/ohn-uuid.ohn');
-const id = uuid.generateUUIDv4();
-console.log('UUID:', Buffer.from(id).toString('utf8'));
-"
+node -e "const uuid = require('./packages/ohn-uuid/src/ohn-uuid.js'); const id = uuid.generateUUIDv4(); console.log('UUID:', Buffer.from(id).toString('utf8'));"
 ```
 
 The UUID is generated using a pre-allocated entropy pool (65KB) and a pre-allocated output buffer (36 bytes). No heap allocation occurs during generation.
@@ -196,14 +182,28 @@ The same `.ohn` file can compile to a native binary via LLVM IR. This is what po
 
 ### Prerequisites for LLVM compilation
 
+#### macOS
 ```bash
-# macOS
 brew install llvm
 export PATH="$(brew --prefix llvm)/bin:$PATH"
-
-# Verify
 llc --version
 ```
+
+#### Linux (Ubuntu/Debian)
+```bash
+sudo apt update && sudo apt install -y llvm clang
+llc --version
+```
+
+#### Windows (PowerShell)
+```powershell
+winget install LLVM.LLVM
+# or: choco install llvm
+$env:Path += ";C:\Program Files\LLVM\bin"
+llc --version
+```
+
+---
 
 ### Compile to LLVM IR
 
@@ -217,14 +217,16 @@ This produces `hello-world.ll` — human-readable LLVM IR.
 
 ### Compile to native binary
 
+**macOS / Linux:**
 ```bash
 clang -O3 -march=native hello-world.ll compiler/src/shim/ohnrscript-runtime.c -o hello-world -lm
+./hello-world
 ```
 
-### Run it
-
-```bash
-./hello-world
+**Windows (PowerShell / CMD):**
+```powershell
+clang -O3 hello-world.ll compiler/src/shim/ohnrscript-runtime.c -o hello-world.exe -lm
+.\hello-world.exe
 ```
 
 **What happened:** The same Ohnrscript went through a completely different backend. Instead of producing JavaScript for V8, the self-hosted compiler generated LLVM IR, which `clang -O3` optimized into a native ARM64 or x86-64 binary. LLVM's optimizer auto-vectorizes loops using SIMD instructions (NEON on ARM, SSE/AVX on x86).

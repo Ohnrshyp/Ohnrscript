@@ -268,13 +268,6 @@ You may use Ohnrscript in production completely for free if your organization me
 2. You are not building a managed competitive service (e.g., a PaaS or DBaaS based on Ohnrscript).
 3. You are not building custom physical silicon or hardware to natively accelerate Ohnrscript. 
 
-### Enterprise Commercial Licenses
-If your organization exceeds the **$500,000 USD** gross annual revenue / total raised capital threshold, you must purchase an Enterprise Commercial License for production use:
-- **Ohnrscript Language (Compiler & Library):** Available via an annual subscription fee based on revenue tier.
-- **Ohn-Kernel:** Available on a per-server deployment basis. 
-
-*Note: Standard Commercial Licenses only grant production rights for organizations exceeding the $500k threshold. They do **not** grant rights to offer managed competitive services (e.g., PaaS or DBaaS based on Ohnrscript) or manufacture custom hardware/silicon natively accelerating Ohnrscript. Such use cases are strictly excluded from standard commercial licenses and require a separate, custom agreement.*
-
 *To view our pricing tiers or purchase a Commercial License, please visit [[ohnrshyp.com/#/connect](https://ohnrshyp.com/#/connect)].*
 *For inquiries or custom licensing, contact [support@ohnrshyp.com](mailto:support@ohnrshyp.com).*
 

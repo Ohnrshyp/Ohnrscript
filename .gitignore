@@ -1,4 +1,5 @@
 node_modules/
+dist/
 test.js
 *.log
 .bootstrap/
@@ -13,3 +14,11 @@ Ohnrscript_Copyright_Deposit.md
 
 *.vsix
 launch_strategy.md
+
+# Build outputs & LLVM intermediate files
+*.ll
+*.o
+*.s
+*.elf
+*.exe
+hello-world

@@ -16,14 +16,15 @@
     "systems"
   ],
   "author": "Jordan Kugler",
-  "license": "Apache-2.0",
-  "description": "A high-performance domain-specific Javascript dialect for V8 systems programming, featuring AOT CBOR serialization and zero-allocation binary layouts.",
+  "license": "BUSL-1.1",
+  "description": "A Turing-complete, zero-allocation systems language featuring JavaScript-style syntax and C-like memory management for bare-metal LLVM and V8 execution.",
   "repository": {
     "type": "git",
     "url": "https://github.com/ohnrshyp/ohnrscript.git"
   },
   "bin": {
-    "ohnc": "core/bin/ohnc.js"
+    "ohnc": "core/bin/ohnc.js",
+    "ohn-compile": "compiler/scripts/compile.js"
   },
   "dependencies": {
     "@babel/cli": "^7.29.7",

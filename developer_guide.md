@@ -211,6 +211,36 @@ function readUint32_LE(buffer, byteOffset) {
 }
 ```
 
+### The "Virtual Byte Array" Idiom
+
+Ohnrscript does not have 8-bit arrays (like `Uint8Array`) on the native backend. When you need to read or write a single byte inside a 32-bit `Int32Array`, you use modulo arithmetic and bitmasking. This idiom treats a flat `i32` array as a virtual byte array:
+
+```ohnrscript
+function write_byte(buf, byte_idx, byte_val) {
+    let word_idx = (byte_idx / 4) | 0;
+    let byte_offset = (byte_idx % 4) | 0;
+    let shift = (byte_offset * 8) | 0;
+    let mask = ((0xFF << shift) ^ -1) | 0;
+    let word = buf[word_idx] | 0;
+    word = (word & mask) | ((byte_val & 0xFF) << shift);
+    buf[word_idx] = word | 0;
+}
+```
+
+### The "Integer-as-Pointer" Mechanic
+
+This is a massive departure from standard JavaScript. Ohnrscript overloads the array bracket operator `[]` so that when applied to an integer, it acts as a raw memory pointer dereference. 
+
+```ohnrscript
+let memory_address = 1048576; // e.g., 1MB offset
+
+// In standard JS this is undefined. 
+// In Ohnrscript, it emits an LLVM `load` instruction reading 4 bytes natively!
+let value = memory_address[0] | 0; 
+let next_value = memory_address[1] | 0; // Reads 4 bytes at offset 1048580
+```
+This idiom allows you to treat any `i32` variable as a base address and offset into it natively to read little-endian 4-byte words directly from hardware memory.
+
 ---
 
 ## 6. Functions
@@ -457,6 +487,24 @@ function scanForNewline(buffer, length) {
 
 **This is the Ohnrscript pattern.** Instead of `request.method === "GET"` (which requires string allocation, comparison, and GC), you cast 4 bytes into a single integer and compare it in one CPU instruction.
 
+### The "Hex-Packing" Idiom
+
+Instead of allocating strings for hexadecimal representations (which requires heap allocation), you can pack ASCII hex characters directly into integers. 
+
+```ohnrscript
+function get_hex_char(val) {
+    if (val < 10) return (48 + val) | 0; // '0'-'9'
+    return (55 + val) | 0;               // 'A'-'F'
+}
+
+function hex_byte_chars(val) {
+    let high = (val >> 4) & 0x0F;
+    let low = val & 0x0F;
+    return (get_hex_char(high) | (get_hex_char(low) << 8)) | 0;
+}
+```
+This idiom packs up to 4 ASCII characters into a single `i32` register, completely bypassing the need for string objects when generating hashes or text output.
+
 ---
 
 ## 10. Classes & Methods
@@ -482,6 +530,19 @@ class PacketHeader {
 ### `this` Keyword
 
 `this` refers to the current class instance. It is supported in the parser and V8 generator.
+
+### The "Flat State" Idiom (Native Target)
+
+On the native LLVM backend, objects and the `this` context do not exist. To manage complex state (like a cryptographic hash context or a TCP state machine), Ohnrscript uses the "Flat State" idiom. Instead of instantiating objects (`new MD5Context()`), you use global or file-scoped `i32` variables:
+
+```ohnrscript
+// Global MD5 state (No Object allocation)
+let md5_A = 0x67452301;
+let md5_B = 0xefcdab89;
+let md5_C = 0x98badcfe;
+let md5_D = 0x10325476;
+```
+By keeping state flat, you eliminate object property lookups and guarantee zero garbage collection overhead, while maintaining clean module-level encapsulation.
 
 ---
 

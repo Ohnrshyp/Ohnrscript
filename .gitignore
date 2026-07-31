@@ -22,3 +22,12 @@ launch_strategy.md
 *.elf
 *.exe
 hello-world
+
+# VHS benchmark video pipeline — local capture tools, not part of the language
+*.mp4
+*.gif
+benchmarks/tapes/
+benchmarks/utils/vhs-runner.js
+packages/**/benchmarks/video-bench.js
+packages/**/benchmarks/bench-ohn.js
+packages/**/benchmarks/bench-zod.js

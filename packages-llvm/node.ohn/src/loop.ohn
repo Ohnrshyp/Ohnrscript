@@ -26,10 +26,11 @@ let EPOLLET      = -2147483647 - 1; // edge-triggered (0x80000000 as i32)
 // Each active connection is tracked by its file descriptor as the index key.
 // All state is flat integers — no heap allocation ever.
 let MAX_CONN         = 4096;
-let STATE_IDLE       = 0;
-let STATE_READING    = 1;
-let STATE_WRITING    = 2;
-let STATE_DRAINING   = 3;   // SIGTERM draining phase
+let STATE_IDLE          = 0;
+let STATE_READING       = 1;
+let STATE_WRITING       = 2;
+let STATE_DRAINING      = 3;   // SIGTERM draining phase
+let STATE_TLS_HANDSHAKE = 4;   // mbedTLS handshake in progress
 
 // Per-socket flat arrays (indexed by slot, not fd).
 // fd_table[slot] = fd, state_table[slot] = STATE_*, etc.
@@ -74,6 +75,24 @@ const ohn_socket_write = __extern('sys_socket_write');
 const ohn_socket_close = __extern('sys_socket_close');
 const ohn_fill_http_response = __extern('sys_fill_http_response');
 
+const ohn_time_sec = __extern('sys_time_sec');
+
+// ── MPSC Integration ──
+// mpsc_push is defined in mpsc.ohn, but we need to declare it if they are compiled together.
+// In Ohnrscript, functions from other files compiled together are globally visible,
+// so we can just call mpsc_push(slot).
+
+
+// ── Globals ──
+let current_sec = 0;
+
+// ── TLS Externs ──
+const ohn_tls_connect = __extern('sys_tls_connect');
+const ohn_tls_handshake = __extern('sys_tls_handshake');
+const ohn_tls_read = __extern('sys_tls_read');
+const ohn_tls_write = __extern('sys_tls_write');
+const ohn_tls_close = __extern('sys_tls_close');
+
 // ── Slot Management ──
 // Find the first idle slot. Returns -1 if full (server at capacity).
 function findFreeSlot() {
@@ -102,7 +121,9 @@ function findSlotByFd(fd) {
 // Release a slot and close the socket.
 function closeSlot(kq, slot) {
     let fd = fd_table[slot] | 0;
+    ohn_tls_close(slot); // Free TLS context
     ohn_socket_close(fd);
+    timeout_remove(slot);
     fd_table[slot]    = 0;
     state_table[slot] = STATE_IDLE;
     bytes_read[slot]  = 0;
@@ -138,11 +159,11 @@ function acceptConnections(kq, listen_fd) {
         if (slot < 0) {
             // At capacity — gracefully reject.
             ohn_socket_close(client_fd);
-            return 0;
+            continue;
         }
 
         fd_table[slot]    = client_fd;
-        state_table[slot] = STATE_READING;
+        state_table[slot] = STATE_TLS_HANDSHAKE;
         bytes_read[slot]  = 0;
         bytes_written[slot] = 0;
         parse_state[slot] = 0;
@@ -151,22 +172,68 @@ function acceptConnections(kq, listen_fd) {
         bytes_processed[slot] = 0;
         active_count = (active_count + 1) | 0;
 
-        // Register for read-readiness with kqueue/epoll.
+        // Initialize TLS connection context for this slot
+        ohn_tls_connect(slot, client_fd, 0, 1);
+        
+        timeout_add(slot, (current_sec + 5) | 0); // 5 second Slowloris timeout
+        
+        // Register for read-readiness to kick off handshake
         ohn_kqueue_register(kq, client_fd, EVFILT_READ, EV_ADD);
+    }
+}
+
+// ── TLS Handshake handler ──
+function handleHandshake(kq, slot) {
+    let ret = ohn_tls_handshake(slot) | 0;
+    let fd = fd_table[slot] | 0;
+    
+    if (ret === -1) {
+        // WANT_READ
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_ADD);
+    } else if (ret === -2) {
+        // WANT_WRITE
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+    } else if (ret === 0) {
+        // Handshake Complete
+        state_table[slot] = STATE_READING;
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_ADD);
+        
+        // Push completion event to MPSC queue so the Promise can resolve
+        mpsc_push(slot);
+        
+        // timeout_touch(slot, (current_sec + 30) | 0); // 30 second keep-alive
+    } else {
+        // Fatal error
+        closeSlot(kq, slot);
     }
 }
 
 // ── Read handler ──
 function handleRead(kq, slot) {
+    if ((state_table[slot] | 0) === STATE_TLS_HANDSHAKE) {
+        handleHandshake(kq, slot);
+        return 0;
+    }
+
     let fd        = fd_table[slot] | 0;
     let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
-    let n = ohn_socket_read(fd, buf_offset, BUF_SLOT_SIZE) | 0;
+    let n = ohn_tls_read(slot, buf_offset, BUF_SLOT_SIZE) | 0;
+
+    if (n === -1 || n === -2) {
+        // WANT_READ or WANT_WRITE (renegotiation)
+        return 0;
+    }
 
     if (n <= 0) {
         // Client disconnected or error — close slot.
         closeSlot(kq, slot);
         return 0;
     }
+
+    timeout_touch(slot, (current_sec + 30) | 0); // Extend keep-alive on active read
 
     bytes_read[slot] = (bytes_read[slot] + n) | 0;
 
@@ -214,7 +281,9 @@ function handleRead(kq, slot) {
             let method = parse_method[slot] | 0;
             let hash = current_hash[slot] | 0;
             
-            router_handle(method, hash, slot);
+            let resp_len = router_handle(method, hash, buf_offset) | 0;
+            bytes_written[slot] = resp_len;
+            state_table[slot] = STATE_WRITING;
 
             // Register EPOLLOUT / EVFILT_WRITE to flush the response.
             ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
@@ -224,17 +293,29 @@ function handleRead(kq, slot) {
 
 // ── Write handler ──
 function handleWrite(kq, slot) {
+    if ((state_table[slot] | 0) === STATE_TLS_HANDSHAKE) {
+        handleHandshake(kq, slot);
+        return 0;
+    }
+
     let fd         = fd_table[slot] | 0;
     let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
     let to_write   = bytes_written[slot] | 0;
 
-    let n = ohn_socket_write(fd, buf_offset, to_write) | 0;
+    let n = ohn_tls_write(slot, buf_offset, to_write) | 0;
+
+    if (n === -1 || n === -2) {
+        // WANT_READ or WANT_WRITE (renegotiation)
+        return 0;
+    }
 
     if (n < 0) {
         // EAGAIN — kernel send buffer full. State machine stays in WRITING.
         // kqueue/epoll will re-notify when writable again.
         return 0;
     }
+
+    timeout_touch(slot, (current_sec + 30) | 0); // Extend keep-alive on active write
 
     // Track partial writes (EAGAIN state machine).
     bytes_written[slot] = (bytes_written[slot] - n) | 0;
@@ -261,6 +342,19 @@ function ohn_event_loop_run(listen_fd) {
 
     while (1) {
         let n = ohn_kqueue_wait(kq, event_buf_ptr, MAX_EVENTS, TIMEOUT_MS) | 0;
+
+        // Query monotonic system clock to avoid interval drift
+        current_sec = ohn_time_sec() | 0;
+        
+        // Process timeouts (outside event loop so it runs even if n == 0)
+        while (1) {
+            let expired_slot = timeout_poll(current_sec) | 0;
+            if (expired_slot < 0) {
+                break;
+            }
+            // Brutal eviction
+            closeSlot(kq, expired_slot);
+        }
 
         // Process each ready event.
         let i = 0;

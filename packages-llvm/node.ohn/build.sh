@@ -37,6 +37,20 @@ echo "  Compiler : Self-hosted Ohnrscript"
 echo "  Backend  : LLVM → $(uname -m)"
 echo "────────────────────────────────────────────────────────"
 
+
+# ── 3. Vendored mbedTLS ──
+MBED_DIR="$PKG_DIR/vendor/mbedtls"
+
+if [ ! -f "$MBED_DIR/library/libmbedtls.a" ]; then
+    echo "▶ Compiling vendored mbedTLS (this will take a moment)..."
+    cd "$MBED_DIR"
+    make lib CFLAGS="-O2"
+    cd "$PKG_DIR"
+fi
+
+MBED_CFLAGS="-I${MBED_DIR}/include"
+MBED_LDFLAGS="-L${MBED_DIR}/library -lmbedtls -lmbedx509 -lmbedcrypto"
+
 # The self-hosted compiler takes the combined source.
 echo "▶ Combining Ohnrscript sources..."
 cat "$SRC_DIR/http.ohn" "$SRC_DIR/router.ohn" "$SRC_DIR/mpsc.ohn" "$SRC_DIR/outbound.ohn" "$SRC_DIR/timeout.ohn" "$SRC_DIR/loop.ohn" "$SRC_DIR/server.ohn" > "$OUT_DIR/combined.ohn"
@@ -72,7 +86,7 @@ generator.generate(
 
 # ── 4. Link LLVM IR + C ABI Shim via clang ──
 echo "▶ Linking server.ll + bindings.c → node.ohn binary..."
- if ! $CLANG -O3 -o "$OUT_DIR/node.ohn" "$OUT_DIR/server.ll" "$PKG_DIR/src/bindings.c" "$REPO_ROOT/compiler/src/shim/ohnrscript-runtime.c" -lm; then
+ if ! $CLANG -O3 $MBED_CFLAGS -o "$OUT_DIR/node.ohn" "$OUT_DIR/server.ll" "$PKG_DIR/src/bindings.c" "$REPO_ROOT/compiler/src/shim/ohnrscript-runtime.c" -lm $MBED_LDFLAGS; then
     echo "ERROR: Linking failed."
     exit 1
 fi

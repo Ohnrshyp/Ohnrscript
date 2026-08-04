@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 // The WebAssembly-style 64MB linear heap for Ohnrscript
 uint8_t* ohn_heap_base = NULL;
@@ -23,6 +24,26 @@ void* ohn_resolve_ptr(uint32_t key) {
     if (!ohn_heap_base) return NULL;
     // The key is now a direct byte offset into the linear memory sandbox
     return (void*)(ohn_heap_base + key);
+}
+
+// Hardened bounds-checked pointer resolver to prevent memory corruption
+// across the FFI boundary. Throws a fatal error and exits on out-of-bounds access.
+void* ohn_resolve_ptr_safe(uint32_t base_offset, uint32_t byte_length) {
+    if (!ohn_heap_base) return NULL;
+
+    // 1. Prevent integer wrap-around (overflow)
+    if (base_offset + byte_length < base_offset) {
+        fprintf(stderr, "FATAL: FFI Memory offset overflow! base=%u, len=%u\n", base_offset, byte_length);
+        exit(1);
+    }
+    
+    // 2. Check against the 64MB heap boundary
+    if (base_offset + byte_length > OHN_HEAP_MAX_SIZE) {
+        fprintf(stderr, "FATAL: FFI Out of bounds memory access! base=%u, len=%u\n", base_offset, byte_length);
+        exit(1); 
+    }
+    
+    return (void*)(ohn_heap_base + base_offset);
 }
 
 // ohn_alloc_f32: allocate N float elements with 64-byte cache-line alignment.

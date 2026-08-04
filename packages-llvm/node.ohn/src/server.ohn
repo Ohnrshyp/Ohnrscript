@@ -17,6 +17,7 @@ const ohn_socket_nonblock = __extern('sys_socket_nonblock');
 const ohn_socket_bind = __extern('sys_socket_bind');
 const ohn_socket_listen = __extern('sys_socket_listen');
 const ohn_socket_close = __extern('sys_socket_close');
+const ohn_tls_init = __extern('sys_tls_init');
 
 // fork() is a direct libc call — returns 0 in child, PID in parent, -1 on error
 const sys_fork = __extern('fork');
@@ -58,6 +59,24 @@ function createListenSocket(port) {
     return fd;
 }
 
+function worker_main() {
+    // 1. Initialize mbedTLS memory arena & Hybrid CA configuration AFTER fork
+    ohn_tls_init();
+
+    // 2. Create the listening socket AFTER the fork.
+    // Using SO_REUSEPORT here allows multiple independent FDs to bind to 8443.
+    // The OS will load-balance connections, completely eliminating the Thundering Herd.
+    let PORT = 8443;
+    let listen_fd = createListenSocket(PORT) | 0;
+    if (listen_fd < 0) {
+        return 1;
+    }
+
+    // 3. Drop into event loop
+    ohn_event_loop_run(listen_fd);
+    return 0;
+}
+
 function main() {
     // Force evaluation of top-level statements for this module.
     // Without this, the initialization block (which sets up globals like EVFILT_READ) is never executed.
@@ -66,22 +85,14 @@ function main() {
     // 1. Globally suppress SIGPIPE before any socket work.
     ohn_suppress_sigpipe();
 
-    let PORT = 8080;
-    let listen_fd = createListenSocket(PORT) | 0;
-    if (listen_fd < 0) {
-        return 1;
-    }
-
-    // 2. Fork N-1 additional worker processes.
-    //    Each worker shares the same listen_fd (SO_REUSEPORT
-    //    ensures the kernel distributes connections, not us).
+    // 2. Fork N-1 additional worker processes first!
     let cores = ohn_cpu_count() | 0;
     let i = 1;
     while (i < cores) {
         let pid = sys_fork() | 0;
         if (pid === 0) {
-            // Child: drop into event loop immediately.
-            ohn_event_loop_run(listen_fd);
+            // Child: drop into worker_main immediately.
+            worker_main();
             return 0;
         }
         // Parent: continue forking.
@@ -89,7 +100,7 @@ function main() {
     }
 
     // 3. Parent process also becomes a worker.
-    ohn_event_loop_run(listen_fd);
+    worker_main();
 
     return 0;
 }

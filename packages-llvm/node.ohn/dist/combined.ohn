@@ -13,12 +13,28 @@ let QM = 63; // '?' (0x3F)
 let METHOD_GET = 542393671;
 // "POST" -> 0x54534F50 (1414745936)
 let METHOD_POST = 1414745936;
+// LOCAL helper functions — inlined from network_parser.ohn to avoid
+// the i32/i64 __extern ABI mismatch at the LLVM IR cross-module boundary.
+// Prefixed http_local_ to prevent linker duplicate symbol errors.
+function http_local_readUint8(buf_offset, byteOffset) {
+    let wordIndex = (buf_offset + (byteOffset >>> 2)) | 0;
+    let bitShift = (byteOffset & 3) * 8;
+    return (read_buf[wordIndex] >>> bitShift) & 0xFF;
+}
 
-const ohn_mem_read_i8 = __extern('sys_mem_read_i8');
-const ohn_mem_read_i32 = __extern('sys_mem_read_i32');
+function http_local_readUint32_LE(buffer, byteOffset) {
+    let b0 = http_local_readUint8(buffer, byteOffset);
+    let b1 = http_local_readUint8(buffer, (byteOffset + 1) | 0);
+    let b2 = http_local_readUint8(buffer, (byteOffset + 2) | 0);
+    let b3 = http_local_readUint8(buffer, (byteOffset + 3) | 0);
+    return ((b3 << 24) | (b2 << 16) | (b1 << 8) | b0) >>> 0;
+}
+
+// router_handle is defined in router.ohn which is compiled into the same unit.
+// Calling it directly avoids a duplicate declare in the generated LLVM IR.
 
 function http_parse_method(buf_ptr) {
-    let method_int = ohn_mem_read_i32(buf_ptr, 0) | 0;
+    let method_int = http_local_readUint32_LE(buf_ptr, 0) | 0;
     
     if (method_int === METHOD_GET) {
         return 1;
@@ -43,7 +59,7 @@ function http_parse_route_hash(buf_ptr, start_offset, total_bytes) {
     let hash = 5381; // djb2 hash base
     
     while (i < limit) {
-        let b = ohn_mem_read_i8(buf_ptr, i) | 0;
+        let b = http_local_readUint8(buf_ptr, i) | 0;
         
         if (b === SP) {
             parse_result[0] = hash;
@@ -56,7 +72,7 @@ function http_parse_route_hash(buf_ptr, start_offset, total_bytes) {
             // Scan forward to the space
             let j = (i + 1) | 0;
             while (j < limit) {
-                let check_b = ohn_mem_read_i8(buf_ptr, j) | 0;
+                let check_b = http_local_readUint8(buf_ptr, j) | 0;
                 if (check_b === SP) {
                     parse_result[1] = j;
                     return 1; // Success
@@ -84,14 +100,14 @@ function http_find_headers_end(buf_ptr, total_bytes) {
     let limit = (total_bytes - 3) | 0;
 
     while (i < limit) {
-        let b0 = ohn_mem_read_i8(buf_ptr, i) | 0;
+        let b0 = http_local_readUint8(buf_ptr, i) | 0;
         
         if (b0 === CR) {
-            let b1 = ohn_mem_read_i8(buf_ptr, (i + 1) | 0) | 0;
+            let b1 = http_local_readUint8(buf_ptr, (i + 1) | 0) | 0;
             if (b1 === LF) {
-                let b2 = ohn_mem_read_i8(buf_ptr, (i + 2) | 0) | 0;
+                let b2 = http_local_readUint8(buf_ptr, (i + 2) | 0) | 0;
                 if (b2 === CR) {
-                    let b3 = ohn_mem_read_i8(buf_ptr, (i + 3) | 0) | 0;
+                    let b3 = http_local_readUint8(buf_ptr, (i + 3) | 0) | 0;
                     if (b3 === LF) {
                         return (i + 4) | 0; // Header ends, body begins
                     }
@@ -103,50 +119,54 @@ function http_find_headers_end(buf_ptr, total_bytes) {
 
     return -1;
 }
+
+export function http_process_payload(rxBufferAddr, payloadLen, txBufferAddr) {
+    let method = http_parse_method(rxBufferAddr);
+    if (method === 0) return 0;
+    
+    let offset = 4;
+    if (method === 2) {
+        offset = 5;
+    }
+    
+    let result = http_parse_route_hash(rxBufferAddr, offset, payloadLen);
+    if (result !== 1) return 0;
+    
+    let hash = parse_result[0] | 0;
+    
+    let responseLen = router_handle(method, hash, txBufferAddr) | 0;
+    return responseLen;
+}
 // router.ohn — Ohnrscript Flat Router
 // 
 // Acts as a branch-optimized jump table utilizing direct switch/case logic
 // on pre-computed integer hashes.
 
-// ── DJB2 Route Hashes ──
-// Hash('/') -> 177620 (Fixed typo)
-let HASH_ROOT = 177620;
-// Hash('/users') -> 6951371504038 (64-bit exact value)
-let HASH_USERS = 6951371504038;
-
 const ohn_fill_response = __extern('sys_fill_response');
 
-function router_handle(method, route_hash, slot) {
-    let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
-    
+export function router_handle(method, route_hash, txBufferAddr) {
     // We only support GET (1) for now
     if (method !== 1) {
         // 405 Method Not Allowed
-        ohn_fill_response(buf_offset, 405);
-        bytes_written[slot] = 68;
-        state_table[slot] = STATE_WRITING;
-        return 0;
+        ohn_fill_response(txBufferAddr, 405);
+        return 55;
     }
 
-    if (route_hash === HASH_ROOT) {
-        ohn_fill_response(buf_offset, 2001); 
-        bytes_written[slot] = 75;
-        state_table[slot] = STATE_WRITING;
-        return 0;
+    // Hash('/') -> 177620
+    if (route_hash === 177620) {
+        ohn_fill_response(txBufferAddr, 2001); 
+        return 75;
     }
     
-    if (route_hash === HASH_USERS) {
-        ohn_fill_response(buf_offset, 2002); 
-        bytes_written[slot] = 95; 
-        state_table[slot] = STATE_WRITING;
-        return 0;
+    // Hash('/users') -> 2114419110 (32-bit truncated djb2)
+    if (route_hash === 2114419110) {
+        ohn_fill_response(txBufferAddr, 2002); 
+        return 87;
     }
 
     // 404 Not Found
-    ohn_fill_response(buf_offset, 404);
-    bytes_written[slot] = 62;
-    state_table[slot] = STATE_WRITING;
-    return 0;
+    ohn_fill_response(txBufferAddr, 404);
+    return 54;
 }
 // mpsc.ohn — Lock-Free Multi-Producer Single-Consumer Queue
 // Written in Ohnrscript.
@@ -155,56 +175,108 @@ function router_handle(method, route_hash, slot) {
 // Background threads (producers) push completion events to this queue atomically.
 // They only write to the eventfd pipe if they transition the queue from Empty to Not-Empty.
 // The main event loop (consumer) drains the queue instantly in user-space.
+//
+// Architecture: intra-process only.
+// Each forked worker has its own private MPSC queue. Background threads within
+// that worker push into it; the worker's main event loop (kqueue/epoll) pops from it.
+// Cross-worker coordination is handled at the kernel level by SO_REUSEPORT.
 
 let MPSC_CAPACITY = 16384; // Power of 2 for fast modulo
 let MPSC_MASK = 16383;     // Capacity - 1
 
-// Ring buffer for IPC events (e.g., storing the slot ID of completed work)
+// Ring buffer for IPC events (e.g., storing the slot ID of completed work).
+// Pre-filled with sentinel -1 to guard the producer-claims-before-write race:
+// a producer atomically claims a head index BEFORE writing slot data into it.
+// The consumer must spin until the sentinel is replaced with real data.
 let mpsc_queue = new Int32Array(MPSC_CAPACITY);
 
-// In LLVM Ohnrscript, we will need atomic intrinsics mapped to flat variables.
-// For now, we simulate the head/tail indices.
-let mpsc_head = 0; // Written by producers
-let mpsc_tail = 0; // Written by consumer (main loop)
+// head and tail as single-element Int32Arrays so their heap byte offsets
+// can be resolved to real pointers in bindings.c for hardware atomic ops.
+let mpsc_head = new Int32Array(1); // Written by producers (CAS)
+let mpsc_tail = new Int32Array(1); // Written by consumer (main loop only — no atomics needed)
 
-// Extern for atomic compare-and-swap (to be implemented via LLVM atomicrmw)
-const ohn_atomic_add = __extern('sys_atomic_add');
+// Atomic primitives — implemented in bindings.c via __atomic_* GCC/Clang builtins.
+// sys_atomic_cmpxchg(offset_bytes, expected, replacement) → 1 on success, 0 on failure
+const ohn_atomic_add    = __extern('sys_atomic_add');
+const ohn_atomic_cmpxchg = __extern('sys_atomic_cmpxchg');
 
-// Producer: Push an event onto the queue from a background thread.
-// Returns 1 if the queue was previously empty (meaning we should signal eventfd).
-// Returns 0 if already populated (skip eventfd).
-// Returns -1 if queue is full.
-function mpsc_push(slot) {
-    let current_head = mpsc_head | 0;
-    let next_head = (current_head + 1) & MPSC_MASK;
-
-    if (next_head === (mpsc_tail | 0)) {
-        // Queue full — in a real implementation we might block or spin
-        return -1; 
+// Initialize the ring buffer slots to -1 (sentinel: slot not yet written by producer).
+// Called once at startup before any threads are spawned.
+function mpsc_init() {
+    let i = 0;
+    while (i < MPSC_CAPACITY) {
+        mpsc_queue[i] = -1;
+        i = (i + 1) | 0;
     }
-
-    // Atomic push logic (simulated until full LLVM atomic lowering is built)
-    mpsc_queue[current_head] = slot;
-    mpsc_head = next_head;
-
-    // Was it empty?
-    if (current_head === (mpsc_tail | 0)) {
-        return 1; // Signal eventfd!
-    }
-    return 0; // Already awake
+    mpsc_head[0] = 0;
+    mpsc_tail[0] = 0;
 }
 
-// Consumer: Drain a single event from the queue in the main loop.
-// Returns the slot ID, or -1 if empty.
+// Producer: Push an event onto the queue from a background thread.
+// Uses a CAS loop to atomically claim the next head index.
+// After claiming, writes the slot data and replaces the sentinel.
+//
+// Returns 1 if the queue was previously empty (caller should signal eventfd).
+// Returns 0 if the queue was already non-empty (eventfd already signalled).
+// Returns -1 if the queue is full.
+function mpsc_push(slot) {
+    // CAS loop: atomically claim the next head index.
+    // Multiple threads may race here; only one wins each iteration.
+    let current_head = 0;
+    let next_head = 0;
+    let claimed = 0;
+
+    while (claimed === 0) {
+        current_head = mpsc_head[0] | 0;
+        next_head = (current_head + 1) & MPSC_MASK;
+
+        // Check for full queue before attempting CAS.
+        if (next_head === (mpsc_tail[0] | 0)) {
+            return -1; // Queue full
+        }
+
+        // Attempt to advance head from current_head to next_head.
+        // If another thread claimed current_head first, this returns 0 and we retry.
+        // mpsc_head is an Int32Array(1); its byte offset in ohn_heap_base is mpsc_head * 4.
+        // The runtime allocator returns a uint32 byte offset; we pass it directly.
+        let head_offset = mpsc_head | 0; // Int32Array ref is its heap byte offset in LLVM
+        claimed = ohn_atomic_cmpxchg(head_offset, current_head, next_head) | 0;
+    }
+
+    // We own current_head. Write the slot data, replacing the sentinel.
+    // The consumer will spin on this slot until it sees a value !== -1.
+    mpsc_queue[current_head] = slot;
+
+    // Was the queue empty before our push?
+    if (current_head === (mpsc_tail[0] | 0)) {
+        return 1; // Signal eventfd — queue just became non-empty
+    }
+    return 0; // Already non-empty, eventfd already awake
+}
+
+// Consumer: Drain a single event from the queue in the main event loop.
+// Only one consumer (the main loop) ever calls this — no atomics needed on tail.
+//
+// Returns the slot ID, or -1 if empty or slot not yet written by producer.
 function mpsc_pop() {
-    let current_tail = mpsc_tail | 0;
-    if (current_tail === (mpsc_head | 0)) {
-        // Queue is empty
+    let current_tail = mpsc_tail[0] | 0;
+
+    if (current_tail === (mpsc_head[0] | 0)) {
+        return -1; // Queue is empty
+    }
+
+    // Spin until the producer has written real data (sentinel guard).
+    let slot = mpsc_queue[current_tail] | 0;
+    if (slot === -1) {
+        // Producer claimed this slot but hasn't written yet. Return -1
+        // and let the event loop retry on the next poll cycle.
         return -1;
     }
 
-    let slot = mpsc_queue[current_tail] | 0;
-    mpsc_tail = (current_tail + 1) & MPSC_MASK;
+    // Reset slot to sentinel before advancing tail (prevents stale reads).
+    mpsc_queue[current_tail] = -1;
+    mpsc_tail[0] = (current_tail + 1) & MPSC_MASK;
+
     return slot;
 }
 // outbound.ohn — High-Water Mark Application Backpressure
@@ -448,10 +520,11 @@ let EPOLLET      = -2147483647 - 1; // edge-triggered (0x80000000 as i32)
 // Each active connection is tracked by its file descriptor as the index key.
 // All state is flat integers — no heap allocation ever.
 let MAX_CONN         = 4096;
-let STATE_IDLE       = 0;
-let STATE_READING    = 1;
-let STATE_WRITING    = 2;
-let STATE_DRAINING   = 3;   // SIGTERM draining phase
+let STATE_IDLE          = 0;
+let STATE_READING       = 1;
+let STATE_WRITING       = 2;
+let STATE_DRAINING      = 3;   // SIGTERM draining phase
+let STATE_TLS_HANDSHAKE = 4;   // mbedTLS handshake in progress
 
 // Per-socket flat arrays (indexed by slot, not fd).
 // fd_table[slot] = fd, state_table[slot] = STATE_*, etc.
@@ -496,6 +569,24 @@ const ohn_socket_write = __extern('sys_socket_write');
 const ohn_socket_close = __extern('sys_socket_close');
 const ohn_fill_http_response = __extern('sys_fill_http_response');
 
+const ohn_time_sec = __extern('sys_time_sec');
+
+// ── MPSC Integration ──
+// mpsc_push is defined in mpsc.ohn, but we need to declare it if they are compiled together.
+// In Ohnrscript, functions from other files compiled together are globally visible,
+// so we can just call mpsc_push(slot).
+
+
+// ── Globals ──
+let current_sec = 0;
+
+// ── TLS Externs ──
+const ohn_tls_connect = __extern('sys_tls_connect');
+const ohn_tls_handshake = __extern('sys_tls_handshake');
+const ohn_tls_read = __extern('sys_tls_read');
+const ohn_tls_write = __extern('sys_tls_write');
+const ohn_tls_close = __extern('sys_tls_close');
+
 // ── Slot Management ──
 // Find the first idle slot. Returns -1 if full (server at capacity).
 function findFreeSlot() {
@@ -524,7 +615,9 @@ function findSlotByFd(fd) {
 // Release a slot and close the socket.
 function closeSlot(kq, slot) {
     let fd = fd_table[slot] | 0;
+    ohn_tls_close(slot); // Free TLS context
     ohn_socket_close(fd);
+    timeout_remove(slot);
     fd_table[slot]    = 0;
     state_table[slot] = STATE_IDLE;
     bytes_read[slot]  = 0;
@@ -560,11 +653,11 @@ function acceptConnections(kq, listen_fd) {
         if (slot < 0) {
             // At capacity — gracefully reject.
             ohn_socket_close(client_fd);
-            return 0;
+            continue;
         }
 
         fd_table[slot]    = client_fd;
-        state_table[slot] = STATE_READING;
+        state_table[slot] = STATE_TLS_HANDSHAKE;
         bytes_read[slot]  = 0;
         bytes_written[slot] = 0;
         parse_state[slot] = 0;
@@ -573,22 +666,68 @@ function acceptConnections(kq, listen_fd) {
         bytes_processed[slot] = 0;
         active_count = (active_count + 1) | 0;
 
-        // Register for read-readiness with kqueue/epoll.
+        // Initialize TLS connection context for this slot
+        ohn_tls_connect(slot, client_fd, 0, 1);
+        
+        timeout_add(slot, (current_sec + 5) | 0); // 5 second Slowloris timeout
+        
+        // Register for read-readiness to kick off handshake
         ohn_kqueue_register(kq, client_fd, EVFILT_READ, EV_ADD);
+    }
+}
+
+// ── TLS Handshake handler ──
+function handleHandshake(kq, slot) {
+    let ret = ohn_tls_handshake(slot) | 0;
+    let fd = fd_table[slot] | 0;
+    
+    if (ret === -1) {
+        // WANT_READ
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_ADD);
+    } else if (ret === -2) {
+        // WANT_WRITE
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+    } else if (ret === 0) {
+        // Handshake Complete
+        state_table[slot] = STATE_READING;
+        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
+        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_ADD);
+        
+        // Push completion event to MPSC queue so the Promise can resolve
+        mpsc_push(slot);
+        
+        // timeout_touch(slot, (current_sec + 30) | 0); // 30 second keep-alive
+    } else {
+        // Fatal error
+        closeSlot(kq, slot);
     }
 }
 
 // ── Read handler ──
 function handleRead(kq, slot) {
+    if ((state_table[slot] | 0) === STATE_TLS_HANDSHAKE) {
+        handleHandshake(kq, slot);
+        return 0;
+    }
+
     let fd        = fd_table[slot] | 0;
     let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
-    let n = ohn_socket_read(fd, buf_offset, BUF_SLOT_SIZE) | 0;
+    let n = ohn_tls_read(slot, buf_offset, BUF_SLOT_SIZE) | 0;
+
+    if (n === -1 || n === -2) {
+        // WANT_READ or WANT_WRITE (renegotiation)
+        return 0;
+    }
 
     if (n <= 0) {
         // Client disconnected or error — close slot.
         closeSlot(kq, slot);
         return 0;
     }
+
+    timeout_touch(slot, (current_sec + 30) | 0); // Extend keep-alive on active read
 
     bytes_read[slot] = (bytes_read[slot] + n) | 0;
 
@@ -636,7 +775,9 @@ function handleRead(kq, slot) {
             let method = parse_method[slot] | 0;
             let hash = current_hash[slot] | 0;
             
-            router_handle(method, hash, slot);
+            let resp_len = router_handle(method, hash, buf_offset) | 0;
+            bytes_written[slot] = resp_len;
+            state_table[slot] = STATE_WRITING;
 
             // Register EPOLLOUT / EVFILT_WRITE to flush the response.
             ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
@@ -646,17 +787,29 @@ function handleRead(kq, slot) {
 
 // ── Write handler ──
 function handleWrite(kq, slot) {
+    if ((state_table[slot] | 0) === STATE_TLS_HANDSHAKE) {
+        handleHandshake(kq, slot);
+        return 0;
+    }
+
     let fd         = fd_table[slot] | 0;
     let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
     let to_write   = bytes_written[slot] | 0;
 
-    let n = ohn_socket_write(fd, buf_offset, to_write) | 0;
+    let n = ohn_tls_write(slot, buf_offset, to_write) | 0;
+
+    if (n === -1 || n === -2) {
+        // WANT_READ or WANT_WRITE (renegotiation)
+        return 0;
+    }
 
     if (n < 0) {
         // EAGAIN — kernel send buffer full. State machine stays in WRITING.
         // kqueue/epoll will re-notify when writable again.
         return 0;
     }
+
+    timeout_touch(slot, (current_sec + 30) | 0); // Extend keep-alive on active write
 
     // Track partial writes (EAGAIN state machine).
     bytes_written[slot] = (bytes_written[slot] - n) | 0;
@@ -683,6 +836,19 @@ function ohn_event_loop_run(listen_fd) {
 
     while (1) {
         let n = ohn_kqueue_wait(kq, event_buf_ptr, MAX_EVENTS, TIMEOUT_MS) | 0;
+
+        // Query monotonic system clock to avoid interval drift
+        current_sec = ohn_time_sec() | 0;
+        
+        // Process timeouts (outside event loop so it runs even if n == 0)
+        while (1) {
+            let expired_slot = timeout_poll(current_sec) | 0;
+            if (expired_slot < 0) {
+                break;
+            }
+            // Brutal eviction
+            closeSlot(kq, expired_slot);
+        }
 
         // Process each ready event.
         let i = 0;
@@ -734,6 +900,7 @@ const ohn_socket_nonblock = __extern('sys_socket_nonblock');
 const ohn_socket_bind = __extern('sys_socket_bind');
 const ohn_socket_listen = __extern('sys_socket_listen');
 const ohn_socket_close = __extern('sys_socket_close');
+const ohn_tls_init = __extern('sys_tls_init');
 
 // fork() is a direct libc call — returns 0 in child, PID in parent, -1 on error
 const sys_fork = __extern('fork');
@@ -775,6 +942,24 @@ function createListenSocket(port) {
     return fd;
 }
 
+function worker_main() {
+    // 1. Initialize mbedTLS memory arena & Hybrid CA configuration AFTER fork
+    ohn_tls_init();
+
+    // 2. Create the listening socket AFTER the fork.
+    // Using SO_REUSEPORT here allows multiple independent FDs to bind to 8443.
+    // The OS will load-balance connections, completely eliminating the Thundering Herd.
+    let PORT = 8443;
+    let listen_fd = createListenSocket(PORT) | 0;
+    if (listen_fd < 0) {
+        return 1;
+    }
+
+    // 3. Drop into event loop
+    ohn_event_loop_run(listen_fd);
+    return 0;
+}
+
 function main() {
     // Force evaluation of top-level statements for this module.
     // Without this, the initialization block (which sets up globals like EVFILT_READ) is never executed.
@@ -783,22 +968,14 @@ function main() {
     // 1. Globally suppress SIGPIPE before any socket work.
     ohn_suppress_sigpipe();
 
-    let PORT = 8080;
-    let listen_fd = createListenSocket(PORT) | 0;
-    if (listen_fd < 0) {
-        return 1;
-    }
-
-    // 2. Fork N-1 additional worker processes.
-    //    Each worker shares the same listen_fd (SO_REUSEPORT
-    //    ensures the kernel distributes connections, not us).
+    // 2. Fork N-1 additional worker processes first!
     let cores = ohn_cpu_count() | 0;
     let i = 1;
     while (i < cores) {
         let pid = sys_fork() | 0;
         if (pid === 0) {
-            // Child: drop into event loop immediately.
-            ohn_event_loop_run(listen_fd);
+            // Child: drop into worker_main immediately.
+            worker_main();
             return 0;
         }
         // Parent: continue forking.
@@ -806,7 +983,7 @@ function main() {
     }
 
     // 3. Parent process also becomes a worker.
-    ohn_event_loop_run(listen_fd);
+    worker_main();
 
     return 0;
 }

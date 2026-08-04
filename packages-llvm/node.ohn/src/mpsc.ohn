@@ -5,55 +5,107 @@
 // Background threads (producers) push completion events to this queue atomically.
 // They only write to the eventfd pipe if they transition the queue from Empty to Not-Empty.
 // The main event loop (consumer) drains the queue instantly in user-space.
+//
+// Architecture: intra-process only.
+// Each forked worker has its own private MPSC queue. Background threads within
+// that worker push into it; the worker's main event loop (kqueue/epoll) pops from it.
+// Cross-worker coordination is handled at the kernel level by SO_REUSEPORT.
 
 let MPSC_CAPACITY = 16384; // Power of 2 for fast modulo
 let MPSC_MASK = 16383;     // Capacity - 1
 
-// Ring buffer for IPC events (e.g., storing the slot ID of completed work)
+// Ring buffer for IPC events (e.g., storing the slot ID of completed work).
+// Pre-filled with sentinel -1 to guard the producer-claims-before-write race:
+// a producer atomically claims a head index BEFORE writing slot data into it.
+// The consumer must spin until the sentinel is replaced with real data.
 let mpsc_queue = new Int32Array(MPSC_CAPACITY);
 
-// In LLVM Ohnrscript, we will need atomic intrinsics mapped to flat variables.
-// For now, we simulate the head/tail indices.
-let mpsc_head = 0; // Written by producers
-let mpsc_tail = 0; // Written by consumer (main loop)
+// head and tail as single-element Int32Arrays so their heap byte offsets
+// can be resolved to real pointers in bindings.c for hardware atomic ops.
+let mpsc_head = new Int32Array(1); // Written by producers (CAS)
+let mpsc_tail = new Int32Array(1); // Written by consumer (main loop only — no atomics needed)
 
-// Extern for atomic compare-and-swap (to be implemented via LLVM atomicrmw)
-const ohn_atomic_add = __extern('sys_atomic_add');
+// Atomic primitives — implemented in bindings.c via __atomic_* GCC/Clang builtins.
+// sys_atomic_cmpxchg(offset_bytes, expected, replacement) → 1 on success, 0 on failure
+const ohn_atomic_add    = __extern('sys_atomic_add');
+const ohn_atomic_cmpxchg = __extern('sys_atomic_cmpxchg');
 
-// Producer: Push an event onto the queue from a background thread.
-// Returns 1 if the queue was previously empty (meaning we should signal eventfd).
-// Returns 0 if already populated (skip eventfd).
-// Returns -1 if queue is full.
-function mpsc_push(slot) {
-    let current_head = mpsc_head | 0;
-    let next_head = (current_head + 1) & MPSC_MASK;
-
-    if (next_head === (mpsc_tail | 0)) {
-        // Queue full — in a real implementation we might block or spin
-        return -1; 
+// Initialize the ring buffer slots to -1 (sentinel: slot not yet written by producer).
+// Called once at startup before any threads are spawned.
+function mpsc_init() {
+    let i = 0;
+    while (i < MPSC_CAPACITY) {
+        mpsc_queue[i] = -1;
+        i = (i + 1) | 0;
     }
-
-    // Atomic push logic (simulated until full LLVM atomic lowering is built)
-    mpsc_queue[current_head] = slot;
-    mpsc_head = next_head;
-
-    // Was it empty?
-    if (current_head === (mpsc_tail | 0)) {
-        return 1; // Signal eventfd!
-    }
-    return 0; // Already awake
+    mpsc_head[0] = 0;
+    mpsc_tail[0] = 0;
 }
 
-// Consumer: Drain a single event from the queue in the main loop.
-// Returns the slot ID, or -1 if empty.
+// Producer: Push an event onto the queue from a background thread.
+// Uses a CAS loop to atomically claim the next head index.
+// After claiming, writes the slot data and replaces the sentinel.
+//
+// Returns 1 if the queue was previously empty (caller should signal eventfd).
+// Returns 0 if the queue was already non-empty (eventfd already signalled).
+// Returns -1 if the queue is full.
+function mpsc_push(slot) {
+    // CAS loop: atomically claim the next head index.
+    // Multiple threads may race here; only one wins each iteration.
+    let current_head = 0;
+    let next_head = 0;
+    let claimed = 0;
+
+    while (claimed === 0) {
+        current_head = mpsc_head[0] | 0;
+        next_head = (current_head + 1) & MPSC_MASK;
+
+        // Check for full queue before attempting CAS.
+        if (next_head === (mpsc_tail[0] | 0)) {
+            return -1; // Queue full
+        }
+
+        // Attempt to advance head from current_head to next_head.
+        // If another thread claimed current_head first, this returns 0 and we retry.
+        // mpsc_head is an Int32Array(1); its byte offset in ohn_heap_base is mpsc_head * 4.
+        // The runtime allocator returns a uint32 byte offset; we pass it directly.
+        let head_offset = mpsc_head | 0; // Int32Array ref is its heap byte offset in LLVM
+        claimed = ohn_atomic_cmpxchg(head_offset, current_head, next_head) | 0;
+    }
+
+    // We own current_head. Write the slot data, replacing the sentinel.
+    // The consumer will spin on this slot until it sees a value !== -1.
+    mpsc_queue[current_head] = slot;
+
+    // Was the queue empty before our push?
+    if (current_head === (mpsc_tail[0] | 0)) {
+        return 1; // Signal eventfd — queue just became non-empty
+    }
+    return 0; // Already non-empty, eventfd already awake
+}
+
+// Consumer: Drain a single event from the queue in the main event loop.
+// Only one consumer (the main loop) ever calls this — no atomics needed on tail.
+//
+// Returns the slot ID, or -1 if empty or slot not yet written by producer.
 function mpsc_pop() {
-    let current_tail = mpsc_tail | 0;
-    if (current_tail === (mpsc_head | 0)) {
-        // Queue is empty
+    let current_tail = mpsc_tail[0] | 0;
+
+    if (current_tail === (mpsc_head[0] | 0)) {
+        return -1; // Queue is empty
+    }
+
+    // Spin until the producer has written real data (sentinel guard).
+    let slot = mpsc_queue[current_tail] | 0;
+    if (slot === -1) {
+        // Producer claimed this slot but hasn't written yet. Return -1
+        // and let the event loop retry on the next poll cycle.
         return -1;
     }
 
-    let slot = mpsc_queue[current_tail] | 0;
-    mpsc_tail = (current_tail + 1) & MPSC_MASK;
+    // Reset slot to sentinel before advancing tail (prevents stale reads).
+    mpsc_queue[current_tail] = -1;
+    mpsc_tail[0] = (current_tail + 1) & MPSC_MASK;
+
     return slot;
 }

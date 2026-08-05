@@ -1,0 +1,21 @@
+======================================
+Measuring TTFB for: Ohnrscript
+======================================
+-> Ohnrscript Cold Start: 60 ms
+./run-coldstart.sh: line 28: kill: (97567) - No such process
+======================================
+Measuring TTFB for: Go
+======================================
+Listening on :8080
+-> Go Cold Start: 47 ms
+./run-coldstart.sh: line 28: kill: (97580) - No such process
+======================================
+Measuring TTFB for: Bun
+======================================
+-> Bun Cold Start: 45 ms
+./run-coldstart.sh: line 6: 97586 Killed: 9               $CMD
+======================================
+Measuring TTFB for: Zig
+======================================
+-> Zig Cold Start: 49 ms
+./run-coldstart.sh: line 28: kill: (97599) - No such process

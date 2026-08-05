@@ -155,15 +155,12 @@ export function router_handle(method, route_hash, txBufferAddr) {
     // Hash('/') -> 177620
     if (route_hash === 177620) {
         ohn_fill_response(txBufferAddr, 2001); 
-        return 75;
+        return 75; // Total length of headers + body
+    } else if (route_hash === 410427976) {
+        ohn_fill_response(txBufferAddr, 2002); 
+        return 86; // Total length of headers + body
     }
     
-    // Hash('/users') -> 2114419110 (32-bit truncated djb2)
-    if (route_hash === 2114419110) {
-        ohn_fill_response(txBufferAddr, 2002); 
-        return 87;
-    }
-
     // 404 Not Found
     ohn_fill_response(txBufferAddr, 404);
     return 54;
@@ -943,9 +940,6 @@ function createListenSocket(port) {
 }
 
 function worker_main() {
-    // 1. Initialize mbedTLS memory arena & Hybrid CA configuration AFTER fork
-    ohn_tls_init();
-
     // 2. Create the listening socket AFTER the fork.
     // Using SO_REUSEPORT here allows multiple independent FDs to bind to 8443.
     // The OS will load-balance connections, completely eliminating the Thundering Herd.

@@ -60,9 +60,6 @@ function createListenSocket(port) {
 }
 
 function worker_main() {
-    // 1. Initialize mbedTLS memory arena & Hybrid CA configuration AFTER fork
-    ohn_tls_init();
-
     // 2. Create the listening socket AFTER the fork.
     // Using SO_REUSEPORT here allows multiple independent FDs to bind to 8443.
     // The OS will load-balance connections, completely eliminating the Thundering Herd.

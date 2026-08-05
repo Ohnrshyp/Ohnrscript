@@ -695,7 +695,7 @@ merge.0:
   %t12 = icmp eq i32 %t10, %t11
   %t13 = zext i1 %t12 to i32
   %t14 = icmp ne i32 %t13, 0
-  br i1 %t14, label %then.1, label %merge.1
+  br i1 %t14, label %then.1, label %else.1
 then.1:
   %t15 = trunc i64 %txBufferAddr to i32
   %t16 = add i32 0, 2001
@@ -704,9 +704,9 @@ then.1:
   %t19 = add i32 0, 75
   ret i32 %t19
   br label %merge.1
-merge.1:
+else.1:
   %t20 = trunc i64 %route_hash to i32
-  %t21 = add i32 0, 2114419110
+  %t21 = add i32 0, 410427976
   %t22 = icmp eq i32 %t20, %t21
   %t23 = zext i1 %t22 to i32
   %t24 = icmp ne i32 %t23, 0
@@ -716,10 +716,12 @@ then.2:
   %t26 = add i32 0, 2002
   %t27 = call i64 @sys_fill_response(i32 %t25, i32 %t26)
   %t28 = trunc i64 %t27 to i32
-  %t29 = add i32 0, 87
+  %t29 = add i32 0, 86
   ret i32 %t29
   br label %merge.2
 merge.2:
+  br label %merge.1
+merge.1:
   %t30 = trunc i64 %txBufferAddr to i32
   %t31 = add i32 0, 404
   %t32 = call i64 @sys_fill_response(i32 %t30, i32 %t31)
@@ -3060,32 +3062,30 @@ define i32 @worker_main() {
 entry:
   %PORT = alloca i32
   %listen_fd = alloca i32
-  %t0 = call i64 @sys_tls_init()
-  %t1 = trunc i64 %t0 to i32
-  %t2 = add i32 0, 8443
-  store i32 %t2, ptr %PORT
-  %t3 = load i32, ptr %PORT
-  %t4 = zext i32 %t3 to i64
-  %t5 = call i32 @createListenSocket(i64 %t4)
-  %t6 = add i32 0, 0
-  %t7 = or i32 %t5, %t6
-  store i32 %t7, ptr %listen_fd
-  %t8 = load i32, ptr %listen_fd
-  %t9 = add i32 0, 0
-  %t10 = icmp slt i32 %t8, %t9
-  %t11 = zext i1 %t10 to i32
-  %t12 = icmp ne i32 %t11, 0
-  br i1 %t12, label %then.0, label %merge.0
+  %t0 = add i32 0, 8443
+  store i32 %t0, ptr %PORT
+  %t1 = load i32, ptr %PORT
+  %t2 = zext i32 %t1 to i64
+  %t3 = call i32 @createListenSocket(i64 %t2)
+  %t4 = add i32 0, 0
+  %t5 = or i32 %t3, %t4
+  store i32 %t5, ptr %listen_fd
+  %t6 = load i32, ptr %listen_fd
+  %t7 = add i32 0, 0
+  %t8 = icmp slt i32 %t6, %t7
+  %t9 = zext i1 %t8 to i32
+  %t10 = icmp ne i32 %t9, 0
+  br i1 %t10, label %then.0, label %merge.0
 then.0:
-  %t13 = add i32 0, 1
-  ret i32 %t13
+  %t11 = add i32 0, 1
+  ret i32 %t11
   br label %merge.0
 merge.0:
-  %t14 = load i32, ptr %listen_fd
-  %t15 = zext i32 %t14 to i64
-  %t16 = call i32 @ohn_event_loop_run(i64 %t15)
-  %t17 = add i32 0, 0
-  ret i32 %t17
+  %t12 = load i32, ptr %listen_fd
+  %t13 = zext i32 %t12 to i64
+  %t14 = call i32 @ohn_event_loop_run(i64 %t13)
+  %t15 = add i32 0, 0
+  ret i32 %t15
   ret i32 0
 }
 

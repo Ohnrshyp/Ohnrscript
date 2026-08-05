@@ -4,7 +4,8 @@
       "name": "Mac",
       "includePath": [
         "${workspaceFolder}/**",
-        "${workspaceFolder}/packages-llvm/tls.ohn/vendor/mbedtls/include"
+        "${workspaceFolder}/packages-llvm/tls.ohn/vendor/mbedtls/include",
+        "${workspaceFolder}/packages-llvm/node.ohn/vendor/mbedtls/include"
       ],
       "defines": [],
       "macFrameworkPath": [

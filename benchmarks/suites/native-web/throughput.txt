@@ -1,0 +1,147 @@
+======================================
+    OHNRSCRIPT (node-bench.ohn)       
+======================================
+        0.02 real         0.00 user         0.01 sys
+            68435968  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                4878  page reclaims
+                   4  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   1  voluntary context switches
+                 365  involuntary context switches
+            48705768  instructions retired
+            28037491  cycles elapsed
+            68125632  peak memory footprint
+Running 10s test @ http://127.0.0.1:8080/
+  12 threads and 400 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     5.36ms    2.86ms  39.14ms   92.32%
+    Req/Sec     6.46k     1.66k    9.37k    83.17%
+  771647 requests in 10.02s, 39.74MB read
+  Non-2xx or 3xx responses: 771647
+Requests/sec:  77005.96
+Transfer/sec:      3.97MB
+./run-throughput.sh: line 12: kill: (97429) - No such process
+======================================
+                GO                    
+======================================
+Listening on :8080
+        0.15 real         0.00 user         0.00 sys
+             9895936  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 824  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 103  involuntary context switches
+            39152401  instructions retired
+            20500077  cycles elapsed
+             3622272  peak memory footprint
+Running 10s test @ http://127.0.0.1:8080/
+  12 threads and 400 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    10.21ms    9.99ms 142.08ms   96.26%
+    Req/Sec     3.57k     1.49k    8.70k    74.17%
+  427307 requests in 10.05s, 22.01MB read
+  Non-2xx or 3xx responses: 427307
+Requests/sec:  42509.10
+Transfer/sec:      2.19MB
+./run-throughput.sh: line 24: kill: (97456) - No such process
+======================================
+                BUN                   
+======================================
+1 | Bun.serve({
+        ^
+error: Failed to start server. Is port 8080 in use?
+ syscall: "listen",
+   errno: 0,
+    code: "EADDRINUSE"
+
+      at /Users/jordankugler/Cursor/ORBIT/ohnrscript/benchmarks/suites/native-web/bun-server/server.ts:1:5
+
+Bun v1.3.14 (macOS arm64)
+        0.17 real         0.02 user         0.06 sys
+            27377664  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 774  page reclaims
+                1078  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   3  messages sent
+                   0  messages received
+                   0  signals received
+                  17  voluntary context switches
+                1032  involuntary context switches
+           179972891  instructions retired
+            93828267  cycles elapsed
+            10176320  peak memory footprint
+Running 10s test @ http://127.0.0.1:8080/
+  12 threads and 400 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    12.31ms   11.96ms 163.10ms   93.94%
+    Req/Sec     3.12k     1.32k    8.59k    80.50%
+  373584 requests in 10.07s, 19.24MB read
+  Non-2xx or 3xx responses: 373584
+Requests/sec:  37105.28
+Transfer/sec:      1.91MB
+./run-throughput.sh: line 36: kill: (97483) - No such process
+======================================
+                ZIG                   
+======================================
+main.zig:2:16: error: root source file struct 'std' has no member named 'net'
+const net = std.net;
+            ~~~^~~~
+/opt/homebrew/Cellar/zig/0.16.0_1/lib/zig/std/std.zig:1:1: note: struct declared here
+pub const AutoHashMap = hash_map.AutoHashMap;
+^~~
+referenced by:
+    main: main.zig:19:25
+    callMain [inlined]: /opt/homebrew/Cellar/zig/0.16.0_1/lib/zig/std/start.zig:698:59
+    callMainWithArgs [inlined]: /opt/homebrew/Cellar/zig/0.16.0_1/lib/zig/std/start.zig:638:20
+    main: /opt/homebrew/Cellar/zig/0.16.0_1/lib/zig/std/start.zig:663:28
+    1 reference(s) hidden; use '-freference-trace=5' to see all references
+        0.00 real         0.00 user         0.00 sys
+             1835008  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 378  page reclaims
+                  33  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   4  voluntary context switches
+                   9  involuntary context switches
+            23211250  instructions retired
+            10556171  cycles elapsed
+             1147648  peak memory footprint
+Running 10s test @ http://127.0.0.1:8080/
+  12 threads and 400 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     7.03ms   10.69ms 161.30ms   97.03%
+    Req/Sec     5.88k     2.49k   24.04k    52.00%
+  702324 requests in 10.10s, 36.17MB read
+  Non-2xx or 3xx responses: 702324
+Requests/sec:  69570.66
+Transfer/sec:      3.58MB
+./run-throughput.sh: line 49: kill: (97528) - No such process

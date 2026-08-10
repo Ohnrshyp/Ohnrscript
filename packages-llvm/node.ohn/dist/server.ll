@@ -7,7 +7,7 @@ declare void @ohn_free(i32)
 
 @server_initialized = global i1 0
 @server_exports = global ptr null
-@CR = global ptr null@LF = global ptr null@SP = global ptr null@QM = global ptr null@METHOD_GET = global ptr null@METHOD_POST = global ptr null@read_buf = global ptr null@parse_result = global ptr null@ohn_fill_response = global ptr null@MPSC_CAPACITY = global ptr null@MPSC_MASK = global ptr null@mpsc_queue = global ptr null@mpsc_head = global ptr null@mpsc_tail = global ptr null@ohn_atomic_add = global ptr null@ohn_atomic_cmpxchg = global ptr null@OUTBOUND_HWM = global ptr null@MAX_CONN = global ptr null@queued_bytes = global ptr null@paused_state = global ptr null@HEAP_MAX = global ptr null@heap_slots = global ptr null@heap_expires = global ptr null@slot_to_heap_idx = global ptr null@heap_size = global ptr null@EVFILT_READ = global ptr null@EVFILT_WRITE = global ptr null@EV_ADD = global ptr null@EV_DELETE = global ptr null@EV_DISABLE = global ptr null@EV_ENABLE = global ptr null@EPOLLIN = global ptr null@EPOLLOUT = global ptr null@EPOLLET = global ptr null@STATE_IDLE = global ptr null@STATE_READING = global ptr null@STATE_WRITING = global ptr null@STATE_DRAINING = global ptr null@STATE_TLS_HANDSHAKE = global ptr null@fd_table = global ptr null@state_table = global ptr null@bytes_read = global ptr null@bytes_written = global ptr null@last_active_ts = global ptr null@parse_state = global ptr null@parse_method = global ptr null@current_hash = global ptr null@bytes_processed = global ptr null@active_count = global ptr null@draining_mode = global ptr null@BUF_SLOT_SIZE = global ptr null@MAX_EVENTS = global ptr null@event_results = global ptr null@ohn_kqueue_create = global ptr null@ohn_kqueue_register = global ptr null@ohn_kqueue_wait = global ptr null@ohn_socket_accept = global ptr null@ohn_socket_nonblock = global ptr null@ohn_socket_read = global ptr null@ohn_socket_write = global ptr null@ohn_socket_close = global ptr null@ohn_fill_http_response = global ptr null@ohn_time_sec = global ptr null@current_sec = global ptr null@ohn_tls_connect = global ptr null@ohn_tls_handshake = global ptr null@ohn_tls_read = global ptr null@ohn_tls_write = global ptr null@ohn_tls_close = global ptr null@ohn_suppress_sigpipe = global ptr null@ohn_cpu_count = global ptr null@ohn_socket_tcp = global ptr null@ohn_socket_set_reuseport = global ptr null@ohn_socket_bind = global ptr null@ohn_socket_listen = global ptr null@ohn_tls_init = global ptr null@sys_fork = global ptr null
+@CR = global ptr null@LF = global ptr null@SP = global ptr null@QM = global ptr null@METHOD_GET = global ptr null@METHOD_POST = global ptr null@read_buf = global ptr null@parse_result = global ptr null@ohn_fill_response = global ptr null@MPSC_CAPACITY = global ptr null@MPSC_MASK = global ptr null@mpsc_queue = global ptr null@mpsc_head = global ptr null@mpsc_tail = global ptr null@ohn_atomic_add = global ptr null@ohn_atomic_cmpxchg = global ptr null@OUTBOUND_HWM = global ptr null@MAX_CONN = global ptr null@queued_bytes = global ptr null@paused_state = global ptr null@HEAP_MAX = global ptr null@heap_slots = global ptr null@heap_expires = global ptr null@slot_to_heap_idx = global ptr null@heap_size = global ptr null@POLL_READ = global ptr null@POLL_WRITE = global ptr null@STATE_IDLE = global ptr null@STATE_READING = global ptr null@STATE_WRITING = global ptr null@STATE_DRAINING = global ptr null@STATE_TLS_HANDSHAKE = global ptr null@fd_table = global ptr null@state_table = global ptr null@bytes_read = global ptr null@bytes_written = global ptr null@last_active_ts = global ptr null@parse_state = global ptr null@parse_method = global ptr null@current_hash = global ptr null@bytes_processed = global ptr null@active_count = global ptr null@draining_mode = global ptr null@BUF_SLOT_SIZE = global ptr null@MAX_EVENTS = global ptr null@event_results = global ptr null@ohn_poll_create = global ptr null@ohn_poll_add = global ptr null@ohn_poll_mod = global ptr null@ohn_poll_del = global ptr null@ohn_poll_wait = global ptr null@ohn_socket_accept = global ptr null@ohn_socket_nonblock = global ptr null@ohn_socket_read = global ptr null@ohn_socket_write = global ptr null@ohn_socket_close = global ptr null@ohn_fill_http_response = global ptr null@ohn_time_sec = global ptr null@current_sec = global ptr null@ohn_tls_connect = global ptr null@ohn_tls_handshake = global ptr null@ohn_tls_read = global ptr null@ohn_tls_write = global ptr null@ohn_tls_close = global ptr null@ohn_is_benchmark = global ptr null@ohn_suppress_sigpipe = global ptr null@ohn_cpu_count = global ptr null@ohn_socket_tcp = global ptr null@ohn_socket_set_reuseport = global ptr null@ohn_socket_bind = global ptr null@ohn_socket_listen = global ptr null@ohn_tls_init = global ptr null@sys_fork = global ptr null
 define ptr @__get_module_exports_server() {
 entry:
   %init_flag = load i1, ptr @server_initialized
@@ -66,91 +66,72 @@ init_block:
   %t29 = add i32 0, 0
   store i32 %t29, ptr @heap_size
   %t30 = add i32 0, 1
-  %t31 = sub i32 0, %t30
-  store i32 %t31, ptr @EVFILT_READ
-  %t32 = add i32 0, 2
-  %t33 = sub i32 0, %t32
-  store i32 %t33, ptr @EVFILT_WRITE
+  store i32 %t30, ptr @POLL_READ
+  %t31 = add i32 0, 2
+  store i32 %t31, ptr @POLL_WRITE
+  %t32 = add i32 0, 4096
+  store i32 %t32, ptr @MAX_CONN
+  %t33 = add i32 0, 0
+  store i32 %t33, ptr @STATE_IDLE
   %t34 = add i32 0, 1
-  store i32 %t34, ptr @EV_ADD
+  store i32 %t34, ptr @STATE_READING
   %t35 = add i32 0, 2
-  store i32 %t35, ptr @EV_DELETE
-  %t36 = add i32 0, 8
-  store i32 %t36, ptr @EV_DISABLE
+  store i32 %t35, ptr @STATE_WRITING
+  %t36 = add i32 0, 3
+  store i32 %t36, ptr @STATE_DRAINING
   %t37 = add i32 0, 4
-  store i32 %t37, ptr @EV_ENABLE
-  %t38 = add i32 0, 1
-  store i32 %t38, ptr @EPOLLIN
-  %t39 = add i32 0, 4
-  store i32 %t39, ptr @EPOLLOUT
-  %t40 = add i32 0, 2147483647
-  %t41 = sub i32 0, %t40
-  %t42 = add i32 0, 1
-  %t43 = sub i32 %t41, %t42
-  store i32 %t43, ptr @EPOLLET
-  %t44 = add i32 0, 4096
-  store i32 %t44, ptr @MAX_CONN
-  %t45 = add i32 0, 0
-  store i32 %t45, ptr @STATE_IDLE
-  %t46 = add i32 0, 1
-  store i32 %t46, ptr @STATE_READING
-  %t47 = add i32 0, 2
-  store i32 %t47, ptr @STATE_WRITING
-  %t48 = add i32 0, 3
-  store i32 %t48, ptr @STATE_DRAINING
-  %t49 = add i32 0, 4
-  store i32 %t49, ptr @STATE_TLS_HANDSHAKE
+  store i32 %t37, ptr @STATE_TLS_HANDSHAKE
+  %t38 = load i32, ptr @MAX_CONN
+  %t39 = call i32 @ohn_alloc_f32(i32 %t38)
+  store i32 %t39, ptr @fd_table
+  %t40 = load i32, ptr @MAX_CONN
+  %t41 = call i32 @ohn_alloc_f32(i32 %t40)
+  store i32 %t41, ptr @state_table
+  %t42 = load i32, ptr @MAX_CONN
+  %t43 = call i32 @ohn_alloc_f32(i32 %t42)
+  store i32 %t43, ptr @bytes_read
+  %t44 = load i32, ptr @MAX_CONN
+  %t45 = call i32 @ohn_alloc_f32(i32 %t44)
+  store i32 %t45, ptr @bytes_written
+  %t46 = load i32, ptr @MAX_CONN
+  %t47 = call i32 @ohn_alloc_f32(i32 %t46)
+  store i32 %t47, ptr @last_active_ts
+  %t48 = load i32, ptr @MAX_CONN
+  %t49 = call i32 @ohn_alloc_f32(i32 %t48)
+  store i32 %t49, ptr @parse_state
   %t50 = load i32, ptr @MAX_CONN
   %t51 = call i32 @ohn_alloc_f32(i32 %t50)
-  store i32 %t51, ptr @fd_table
+  store i32 %t51, ptr @parse_method
   %t52 = load i32, ptr @MAX_CONN
   %t53 = call i32 @ohn_alloc_f32(i32 %t52)
-  store i32 %t53, ptr @state_table
+  store i32 %t53, ptr @current_hash
   %t54 = load i32, ptr @MAX_CONN
   %t55 = call i32 @ohn_alloc_f32(i32 %t54)
-  store i32 %t55, ptr @bytes_read
-  %t56 = load i32, ptr @MAX_CONN
-  %t57 = call i32 @ohn_alloc_f32(i32 %t56)
-  store i32 %t57, ptr @bytes_written
-  %t58 = load i32, ptr @MAX_CONN
-  %t59 = call i32 @ohn_alloc_f32(i32 %t58)
-  store i32 %t59, ptr @last_active_ts
-  %t60 = load i32, ptr @MAX_CONN
-  %t61 = call i32 @ohn_alloc_f32(i32 %t60)
-  store i32 %t61, ptr @parse_state
-  %t62 = load i32, ptr @MAX_CONN
-  %t63 = call i32 @ohn_alloc_f32(i32 %t62)
-  store i32 %t63, ptr @parse_method
-  %t64 = load i32, ptr @MAX_CONN
-  %t65 = call i32 @ohn_alloc_f32(i32 %t64)
-  store i32 %t65, ptr @current_hash
-  %t66 = load i32, ptr @MAX_CONN
-  %t67 = call i32 @ohn_alloc_f32(i32 %t66)
-  store i32 %t67, ptr @bytes_processed
-  %t68 = add i32 0, 0
-  store i32 %t68, ptr @active_count
-  %t69 = add i32 0, 0
-  store i32 %t69, ptr @draining_mode
-  %t70 = add i32 0, 8192
-  store i32 %t70, ptr @BUF_SLOT_SIZE
-  %t71 = load i32, ptr @MAX_CONN
-  %t72 = load i32, ptr @BUF_SLOT_SIZE
-  %t73 = mul i32 %t71, %t72
-  %t74 = add i32 0, 4
-  %t75 = sdiv i32 %t73, %t74
-  %t76 = call i32 @ohn_alloc_f32(i32 %t75)
-  store i32 %t76, ptr @read_buf
-  %t77 = add i32 0, 2097152
-  store i32 %t77, ptr @OUTBOUND_HWM
-  %t78 = add i32 0, 256
-  store i32 %t78, ptr @MAX_EVENTS
-  %t79 = load i32, ptr @MAX_EVENTS
-  %t80 = add i32 0, 2
-  %t81 = mul i32 %t79, %t80
-  %t82 = call i32 @ohn_alloc_f32(i32 %t81)
-  store i32 %t82, ptr @event_results
-  %t83 = add i32 0, 0
-  store i32 %t83, ptr @current_sec
+  store i32 %t55, ptr @bytes_processed
+  %t56 = add i32 0, 0
+  store i32 %t56, ptr @active_count
+  %t57 = add i32 0, 0
+  store i32 %t57, ptr @draining_mode
+  %t58 = add i32 0, 8192
+  store i32 %t58, ptr @BUF_SLOT_SIZE
+  %t59 = load i32, ptr @MAX_CONN
+  %t60 = load i32, ptr @BUF_SLOT_SIZE
+  %t61 = mul i32 %t59, %t60
+  %t62 = add i32 0, 4
+  %t63 = sdiv i32 %t61, %t62
+  %t64 = call i32 @ohn_alloc_f32(i32 %t63)
+  store i32 %t64, ptr @read_buf
+  %t65 = add i32 0, 2097152
+  store i32 %t65, ptr @OUTBOUND_HWM
+  %t66 = add i32 0, 256
+  store i32 %t66, ptr @MAX_EVENTS
+  %t67 = load i32, ptr @MAX_EVENTS
+  %t68 = add i32 0, 2
+  %t69 = mul i32 %t67, %t68
+  %t70 = call i32 @ohn_alloc_f32(i32 %t69)
+  store i32 %t70, ptr @event_results
+  %t71 = add i32 0, 0
+  store i32 %t71, ptr @current_sec
   store ptr null, ptr @server_exports
   br label %return_block
 return_block:
@@ -675,6 +656,7 @@ merge.2:
 
 define i32 @router_handle(i64 %method, i64 %route_hash, i64 %txBufferAddr) {
 entry:
+  %len = alloca i32
   %t0 = trunc i64 %method to i32
   %t1 = add i32 0, 1
   %t2 = icmp ne i32 %t0, %t1
@@ -701,33 +683,42 @@ then.1:
   %t16 = add i32 0, 2001
   %t17 = call i64 @sys_fill_response(i32 %t15, i32 %t16)
   %t18 = trunc i64 %t17 to i32
-  %t19 = add i32 0, 75
-  ret i32 %t19
+  %t19 = add i32 0, 0
+  %t20 = or i32 %t18, %t19
+  store i32 %t20, ptr %len
+  %t21 = load i32, ptr %len
+  ret i32 %t21
   br label %merge.1
 else.1:
-  %t20 = trunc i64 %route_hash to i32
-  %t21 = add i32 0, 410427976
-  %t22 = icmp eq i32 %t20, %t21
-  %t23 = zext i1 %t22 to i32
-  %t24 = icmp ne i32 %t23, 0
-  br i1 %t24, label %then.2, label %merge.2
+  %t22 = trunc i64 %route_hash to i32
+  %t23 = add i32 0, 410427976
+  %t24 = icmp eq i32 %t22, %t23
+  %t25 = zext i1 %t24 to i32
+  %t26 = icmp ne i32 %t25, 0
+  br i1 %t26, label %then.2, label %merge.2
 then.2:
-  %t25 = trunc i64 %txBufferAddr to i32
-  %t26 = add i32 0, 2002
-  %t27 = call i64 @sys_fill_response(i32 %t25, i32 %t26)
-  %t28 = trunc i64 %t27 to i32
-  %t29 = add i32 0, 86
-  ret i32 %t29
+  %t27 = trunc i64 %txBufferAddr to i32
+  %t28 = add i32 0, 2002
+  %t29 = call i64 @sys_fill_response(i32 %t27, i32 %t28)
+  %t30 = trunc i64 %t29 to i32
+  %t31 = add i32 0, 0
+  %t32 = or i32 %t30, %t31
+  store i32 %t32, ptr %len
+  %t33 = load i32, ptr %len
+  ret i32 %t33
   br label %merge.2
 merge.2:
   br label %merge.1
 merge.1:
-  %t30 = trunc i64 %txBufferAddr to i32
-  %t31 = add i32 0, 404
-  %t32 = call i64 @sys_fill_response(i32 %t30, i32 %t31)
-  %t33 = trunc i64 %t32 to i32
-  %t34 = add i32 0, 54
-  ret i32 %t34
+  %t34 = trunc i64 %txBufferAddr to i32
+  %t35 = add i32 0, 404
+  %t36 = call i64 @sys_fill_response(i32 %t34, i32 %t35)
+  %t37 = trunc i64 %t36 to i32
+  %t38 = add i32 0, 0
+  %t39 = or i32 %t37, %t38
+  store i32 %t39, ptr %len
+  %t40 = load i32, ptr %len
+  ret i32 %t40
   ret i32 0
 }
 
@@ -1818,7 +1809,7 @@ exit.0:
   ret i32 0
 }
 
-define i32 @closeSlot(i64 %kq, i64 %slot) {
+define i32 @closeSlot(i64 %poll_fd, i64 %slot) {
 entry:
   %fd = alloca i32
   %t0 = load i32, ptr @fd_table
@@ -1831,89 +1822,105 @@ entry:
   %t7 = add i32 0, 0
   %t8 = or i32 %t6, %t7
   store i32 %t8, ptr %fd
-  %t9 = trunc i64 %slot to i32
-  %t10 = call i64 @sys_tls_close(i32 %t9)
-  %t11 = trunc i64 %t10 to i32
-  %t12 = load i32, ptr %fd
-  %t13 = call i64 @sys_socket_close(i32 %t12)
+  %t9 = trunc i64 %poll_fd to i32
+  %t10 = load i32, ptr %fd
+  %t11 = call i64 @sys_poll_del(i32 %t9, i32 %t10)
+  %t12 = trunc i64 %t11 to i32
+  %t13 = call i64 @sys_is_benchmark()
   %t14 = trunc i64 %t13 to i32
-  %t15 = trunc i64 %slot to i32
-  %t16 = zext i32 %t15 to i64
-  %t17 = call i32 @timeout_remove(i64 %t16)
-  %t18 = add i32 0, 0
-  %t19 = load i32, ptr @fd_table
-  %t20 = trunc i64 %slot to i32
-  %t21 = mul i32 4, %t20
-  %t22 = add i32 %t19, %t21
-  %t23 = load ptr, ptr @ohn_heap_base
-  %t24 = getelementptr i8, ptr %t23, i32 %t22
-  store i32 %t18, ptr %t24
-  %t25 = load i32, ptr @STATE_IDLE
-  %t26 = load i32, ptr @state_table
+  %t15 = add i32 0, 0
+  %t16 = or i32 %t14, %t15
+  %t17 = add i32 0, 0
+  %t18 = icmp eq i32 %t16, %t17
+  %t19 = zext i1 %t18 to i32
+  %t20 = icmp ne i32 %t19, 0
+  br i1 %t20, label %then.0, label %merge.0
+then.0:
+  %t21 = trunc i64 %slot to i32
+  %t22 = call i64 @sys_tls_close(i32 %t21)
+  %t23 = trunc i64 %t22 to i32
+  br label %merge.0
+merge.0:
+  %t24 = load i32, ptr %fd
+  %t25 = call i64 @sys_socket_close(i32 %t24)
+  %t26 = trunc i64 %t25 to i32
   %t27 = trunc i64 %slot to i32
-  %t28 = mul i32 4, %t27
-  %t29 = add i32 %t26, %t28
-  %t30 = load ptr, ptr @ohn_heap_base
-  %t31 = getelementptr i8, ptr %t30, i32 %t29
-  store i32 %t25, ptr %t31
-  %t32 = add i32 0, 0
-  %t33 = load i32, ptr @bytes_read
-  %t34 = trunc i64 %slot to i32
-  %t35 = mul i32 4, %t34
-  %t36 = add i32 %t33, %t35
-  %t37 = load ptr, ptr @ohn_heap_base
-  %t38 = getelementptr i8, ptr %t37, i32 %t36
-  store i32 %t32, ptr %t38
-  %t39 = add i32 0, 0
-  %t40 = load i32, ptr @bytes_written
-  %t41 = trunc i64 %slot to i32
-  %t42 = mul i32 4, %t41
-  %t43 = add i32 %t40, %t42
-  %t44 = load ptr, ptr @ohn_heap_base
-  %t45 = getelementptr i8, ptr %t44, i32 %t43
-  store i32 %t39, ptr %t45
-  %t46 = add i32 0, 0
-  %t47 = load i32, ptr @parse_state
-  %t48 = trunc i64 %slot to i32
-  %t49 = mul i32 4, %t48
-  %t50 = add i32 %t47, %t49
-  %t51 = load ptr, ptr @ohn_heap_base
-  %t52 = getelementptr i8, ptr %t51, i32 %t50
-  store i32 %t46, ptr %t52
-  %t53 = add i32 0, 0
-  %t54 = load i32, ptr @parse_method
-  %t55 = trunc i64 %slot to i32
-  %t56 = mul i32 4, %t55
-  %t57 = add i32 %t54, %t56
-  %t58 = load ptr, ptr @ohn_heap_base
-  %t59 = getelementptr i8, ptr %t58, i32 %t57
-  store i32 %t53, ptr %t59
-  %t60 = add i32 0, 0
-  %t61 = load i32, ptr @current_hash
-  %t62 = trunc i64 %slot to i32
-  %t63 = mul i32 4, %t62
-  %t64 = add i32 %t61, %t63
-  %t65 = load ptr, ptr @ohn_heap_base
-  %t66 = getelementptr i8, ptr %t65, i32 %t64
-  store i32 %t60, ptr %t66
-  %t67 = add i32 0, 0
-  %t68 = load i32, ptr @bytes_processed
-  %t69 = trunc i64 %slot to i32
-  %t70 = mul i32 4, %t69
-  %t71 = add i32 %t68, %t70
-  %t72 = load ptr, ptr @ohn_heap_base
-  %t73 = getelementptr i8, ptr %t72, i32 %t71
-  store i32 %t67, ptr %t73
-  %t74 = load i32, ptr @active_count
-  %t75 = add i32 0, 1
-  %t76 = sub i32 %t74, %t75
-  %t77 = add i32 0, 0
-  %t78 = or i32 %t76, %t77
-  store i32 %t78, ptr @active_count
+  %t28 = zext i32 %t27 to i64
+  %t29 = call i32 @timeout_remove(i64 %t28)
+  %t30 = add i32 0, 0
+  %t31 = load i32, ptr @fd_table
+  %t32 = trunc i64 %slot to i32
+  %t33 = mul i32 4, %t32
+  %t34 = add i32 %t31, %t33
+  %t35 = load ptr, ptr @ohn_heap_base
+  %t36 = getelementptr i8, ptr %t35, i32 %t34
+  store i32 %t30, ptr %t36
+  %t37 = load i32, ptr @STATE_IDLE
+  %t38 = load i32, ptr @state_table
+  %t39 = trunc i64 %slot to i32
+  %t40 = mul i32 4, %t39
+  %t41 = add i32 %t38, %t40
+  %t42 = load ptr, ptr @ohn_heap_base
+  %t43 = getelementptr i8, ptr %t42, i32 %t41
+  store i32 %t37, ptr %t43
+  %t44 = add i32 0, 0
+  %t45 = load i32, ptr @bytes_read
+  %t46 = trunc i64 %slot to i32
+  %t47 = mul i32 4, %t46
+  %t48 = add i32 %t45, %t47
+  %t49 = load ptr, ptr @ohn_heap_base
+  %t50 = getelementptr i8, ptr %t49, i32 %t48
+  store i32 %t44, ptr %t50
+  %t51 = add i32 0, 0
+  %t52 = load i32, ptr @bytes_written
+  %t53 = trunc i64 %slot to i32
+  %t54 = mul i32 4, %t53
+  %t55 = add i32 %t52, %t54
+  %t56 = load ptr, ptr @ohn_heap_base
+  %t57 = getelementptr i8, ptr %t56, i32 %t55
+  store i32 %t51, ptr %t57
+  %t58 = add i32 0, 0
+  %t59 = load i32, ptr @parse_state
+  %t60 = trunc i64 %slot to i32
+  %t61 = mul i32 4, %t60
+  %t62 = add i32 %t59, %t61
+  %t63 = load ptr, ptr @ohn_heap_base
+  %t64 = getelementptr i8, ptr %t63, i32 %t62
+  store i32 %t58, ptr %t64
+  %t65 = add i32 0, 0
+  %t66 = load i32, ptr @parse_method
+  %t67 = trunc i64 %slot to i32
+  %t68 = mul i32 4, %t67
+  %t69 = add i32 %t66, %t68
+  %t70 = load ptr, ptr @ohn_heap_base
+  %t71 = getelementptr i8, ptr %t70, i32 %t69
+  store i32 %t65, ptr %t71
+  %t72 = add i32 0, 0
+  %t73 = load i32, ptr @current_hash
+  %t74 = trunc i64 %slot to i32
+  %t75 = mul i32 4, %t74
+  %t76 = add i32 %t73, %t75
+  %t77 = load ptr, ptr @ohn_heap_base
+  %t78 = getelementptr i8, ptr %t77, i32 %t76
+  store i32 %t72, ptr %t78
+  %t79 = add i32 0, 0
+  %t80 = load i32, ptr @bytes_processed
+  %t81 = trunc i64 %slot to i32
+  %t82 = mul i32 4, %t81
+  %t83 = add i32 %t80, %t82
+  %t84 = load ptr, ptr @ohn_heap_base
+  %t85 = getelementptr i8, ptr %t84, i32 %t83
+  store i32 %t79, ptr %t85
+  %t86 = load i32, ptr @active_count
+  %t87 = add i32 0, 1
+  %t88 = sub i32 %t86, %t87
+  %t89 = add i32 0, 0
+  %t90 = or i32 %t88, %t89
+  store i32 %t90, ptr @active_count
   ret i32 0
 }
 
-define i32 @acceptConnections(i64 %kq, i64 %listen_fd) {
+define i32 @acceptConnections(i64 %poll_fd, i64 %listen_fd) {
 entry:
   %client_fd = alloca i32
   %slot = alloca i32
@@ -2047,32 +2054,58 @@ merge.3:
   %t98 = or i32 %t96, %t97
   store i32 %t98, ptr @active_count
   %t99 = load i32, ptr %slot
-  %t100 = load i32, ptr %client_fd
-  %t101 = add i32 0, 0
-  %t102 = add i32 0, 1
-  %t103 = call i64 @sys_tls_connect(i32 %t99, i32 %t100, i32 %t101, i32 %t102)
-  %t104 = trunc i64 %t103 to i32
-  %t105 = load i32, ptr %slot
+  %t100 = zext i32 %t99 to i64
+  %t101 = load i32, ptr @current_sec
+  %t102 = add i32 0, 5
+  %t103 = add i32 %t101, %t102
+  %t104 = add i32 0, 0
+  %t105 = or i32 %t103, %t104
   %t106 = zext i32 %t105 to i64
-  %t107 = load i32, ptr @current_sec
-  %t108 = add i32 0, 5
-  %t109 = add i32 %t107, %t108
+  %t107 = call i32 @timeout_add(i64 %t100, i64 %t106)
+  %t108 = call i64 @sys_is_benchmark()
+  %t109 = trunc i64 %t108 to i32
   %t110 = add i32 0, 0
   %t111 = or i32 %t109, %t110
-  %t112 = zext i32 %t111 to i64
-  %t113 = call i32 @timeout_add(i64 %t106, i64 %t112)
-  %t114 = trunc i64 %kq to i32
-  %t115 = load i32, ptr %client_fd
-  %t116 = load i32, ptr @EVFILT_READ
-  %t117 = load i32, ptr @EV_ADD
-  %t118 = call i64 @sys_kqueue_register(i32 %t114, i32 %t115, i32 %t116, i32 %t117)
-  %t119 = trunc i64 %t118 to i32
+  %t112 = add i32 0, 1
+  %t113 = icmp eq i32 %t111, %t112
+  %t114 = zext i1 %t113 to i32
+  %t115 = icmp ne i32 %t114, 0
+  br i1 %t115, label %then.4, label %else.4
+then.4:
+  %t116 = load i32, ptr @STATE_READING
+  %t117 = load i32, ptr @state_table
+  %t118 = load i32, ptr %slot
+  %t119 = mul i32 4, %t118
+  %t120 = add i32 %t117, %t119
+  %t121 = load ptr, ptr @ohn_heap_base
+  %t122 = getelementptr i8, ptr %t121, i32 %t120
+  store i32 %t116, ptr %t122
+  %t123 = trunc i64 %poll_fd to i32
+  %t124 = load i32, ptr %client_fd
+  %t125 = load i32, ptr @POLL_READ
+  %t126 = call i64 @sys_poll_add(i32 %t123, i32 %t124, i32 %t125)
+  %t127 = trunc i64 %t126 to i32
+  br label %merge.4
+else.4:
+  %t128 = load i32, ptr %slot
+  %t129 = load i32, ptr %client_fd
+  %t130 = add i32 0, 0
+  %t131 = add i32 0, 1
+  %t132 = call i64 @sys_tls_connect(i32 %t128, i32 %t129, i32 %t130, i32 %t131)
+  %t133 = trunc i64 %t132 to i32
+  %t134 = trunc i64 %poll_fd to i32
+  %t135 = load i32, ptr %client_fd
+  %t136 = load i32, ptr @POLL_READ
+  %t137 = call i64 @sys_poll_add(i32 %t134, i32 %t135, i32 %t136)
+  %t138 = trunc i64 %t137 to i32
+  br label %merge.4
+merge.4:
   br label %loop.0
 exit.0:
   ret i32 0
 }
 
-define i32 @handleHandshake(i64 %kq, i64 %slot) {
+define i32 @handleHandshake(i64 %poll_fd, i64 %slot) {
 entry:
   %ret = alloca i32
   %fd = alloca i32
@@ -2100,79 +2133,58 @@ entry:
   %t19 = icmp ne i32 %t18, 0
   br i1 %t19, label %then.0, label %else.0
 then.0:
-  %t20 = trunc i64 %kq to i32
+  %t20 = trunc i64 %poll_fd to i32
   %t21 = load i32, ptr %fd
-  %t22 = load i32, ptr @EVFILT_WRITE
-  %t23 = load i32, ptr @EV_DELETE
-  %t24 = call i64 @sys_kqueue_register(i32 %t20, i32 %t21, i32 %t22, i32 %t23)
-  %t25 = trunc i64 %t24 to i32
-  %t26 = trunc i64 %kq to i32
-  %t27 = load i32, ptr %fd
-  %t28 = load i32, ptr @EVFILT_READ
-  %t29 = load i32, ptr @EV_ADD
-  %t30 = call i64 @sys_kqueue_register(i32 %t26, i32 %t27, i32 %t28, i32 %t29)
-  %t31 = trunc i64 %t30 to i32
+  %t22 = load i32, ptr @POLL_READ
+  %t23 = call i64 @sys_poll_mod(i32 %t20, i32 %t21, i32 %t22)
+  %t24 = trunc i64 %t23 to i32
   br label %merge.0
 else.0:
-  %t32 = load i32, ptr %ret
-  %t33 = add i32 0, 2
-  %t34 = sub i32 0, %t33
-  %t35 = icmp eq i32 %t32, %t34
-  %t36 = zext i1 %t35 to i32
-  %t37 = icmp ne i32 %t36, 0
-  br i1 %t37, label %then.1, label %else.1
+  %t25 = load i32, ptr %ret
+  %t26 = add i32 0, 2
+  %t27 = sub i32 0, %t26
+  %t28 = icmp eq i32 %t25, %t27
+  %t29 = zext i1 %t28 to i32
+  %t30 = icmp ne i32 %t29, 0
+  br i1 %t30, label %then.1, label %else.1
 then.1:
-  %t38 = trunc i64 %kq to i32
-  %t39 = load i32, ptr %fd
-  %t40 = load i32, ptr @EVFILT_READ
-  %t41 = load i32, ptr @EV_DELETE
-  %t42 = call i64 @sys_kqueue_register(i32 %t38, i32 %t39, i32 %t40, i32 %t41)
-  %t43 = trunc i64 %t42 to i32
-  %t44 = trunc i64 %kq to i32
-  %t45 = load i32, ptr %fd
-  %t46 = load i32, ptr @EVFILT_WRITE
-  %t47 = load i32, ptr @EV_ADD
-  %t48 = call i64 @sys_kqueue_register(i32 %t44, i32 %t45, i32 %t46, i32 %t47)
-  %t49 = trunc i64 %t48 to i32
+  %t31 = trunc i64 %poll_fd to i32
+  %t32 = load i32, ptr %fd
+  %t33 = load i32, ptr @POLL_WRITE
+  %t34 = call i64 @sys_poll_mod(i32 %t31, i32 %t32, i32 %t33)
+  %t35 = trunc i64 %t34 to i32
   br label %merge.1
 else.1:
-  %t50 = load i32, ptr %ret
-  %t51 = add i32 0, 0
-  %t52 = icmp eq i32 %t50, %t51
-  %t53 = zext i1 %t52 to i32
-  %t54 = icmp ne i32 %t53, 0
-  br i1 %t54, label %then.2, label %else.2
+  %t36 = load i32, ptr %ret
+  %t37 = add i32 0, 0
+  %t38 = icmp eq i32 %t36, %t37
+  %t39 = zext i1 %t38 to i32
+  %t40 = icmp ne i32 %t39, 0
+  br i1 %t40, label %then.2, label %else.2
 then.2:
-  %t55 = load i32, ptr @STATE_READING
-  %t56 = load i32, ptr @state_table
-  %t57 = trunc i64 %slot to i32
-  %t58 = mul i32 4, %t57
-  %t59 = add i32 %t56, %t58
-  %t60 = load ptr, ptr @ohn_heap_base
-  %t61 = getelementptr i8, ptr %t60, i32 %t59
-  store i32 %t55, ptr %t61
-  %t62 = trunc i64 %kq to i32
-  %t63 = load i32, ptr %fd
-  %t64 = load i32, ptr @EVFILT_WRITE
-  %t65 = load i32, ptr @EV_DELETE
-  %t66 = call i64 @sys_kqueue_register(i32 %t62, i32 %t63, i32 %t64, i32 %t65)
-  %t67 = trunc i64 %t66 to i32
-  %t68 = trunc i64 %kq to i32
-  %t69 = load i32, ptr %fd
-  %t70 = load i32, ptr @EVFILT_READ
-  %t71 = load i32, ptr @EV_ADD
-  %t72 = call i64 @sys_kqueue_register(i32 %t68, i32 %t69, i32 %t70, i32 %t71)
-  %t73 = trunc i64 %t72 to i32
-  %t74 = trunc i64 %slot to i32
-  %t75 = zext i32 %t74 to i64
-  %t76 = call i32 @mpsc_push(i64 %t75)
+  %t41 = load i32, ptr @STATE_READING
+  %t42 = load i32, ptr @state_table
+  %t43 = trunc i64 %slot to i32
+  %t44 = mul i32 4, %t43
+  %t45 = add i32 %t42, %t44
+  %t46 = load ptr, ptr @ohn_heap_base
+  %t47 = getelementptr i8, ptr %t46, i32 %t45
+  store i32 %t41, ptr %t47
+  %t48 = trunc i64 %poll_fd to i32
+  %t49 = load i32, ptr %fd
+  %t50 = load i32, ptr @POLL_READ
+  %t51 = call i64 @sys_poll_mod(i32 %t48, i32 %t49, i32 %t50)
+  %t52 = trunc i64 %t51 to i32
+  %t53 = trunc i64 %slot to i32
+  %t54 = zext i32 %t53 to i64
+  %t55 = call i32 @mpsc_push(i64 %t54)
   br label %merge.2
 else.2:
-  %t77 = trunc i64 %kq to i32
-  %t78 = zext i32 %t77 to i64
-  %t79 = trunc i64 %slot to i32
-  %t80 = zext i32 %t79 to i64
-  %t81 = call i32 @closeSlot(i64 %t78, i64 %t80)
+  %t56 = trunc i64 %poll_fd to i32
+  %t57 = zext i32 %t56 to i64
+  %t58 = trunc i64 %slot to i32
+  %t59 = zext i32 %t58 to i64
+  %t60 = call i32 @closeSlot(i64 %t57, i64 %t59)
   br label %merge.2
 merge.2:
   br label %merge.1
@@ -2182,7 +2194,7 @@ merge.0:
   ret i32 0
 }
 
-define i32 @handleRead(i64 %kq, i64 %slot) {
+define i32 @handleRead(i64 %poll_fd, i64 %slot) {
 entry:
   %fd = alloca i32
   %buf_offset = alloca i32
@@ -2210,7 +2222,7 @@ entry:
   %t12 = icmp ne i32 %t11, 0
   br i1 %t12, label %then.0, label %merge.0
 then.0:
-  %t13 = trunc i64 %kq to i32
+  %t13 = trunc i64 %poll_fd to i32
   %t14 = zext i32 %t13 to i64
   %t15 = trunc i64 %slot to i32
   %t16 = zext i32 %t15 to i64
@@ -2237,356 +2249,373 @@ merge.0:
   %t33 = add i32 0, 0
   %t34 = or i32 %t32, %t33
   store i32 %t34, ptr %buf_offset
-  %t35 = trunc i64 %slot to i32
-  %t36 = load i32, ptr %buf_offset
-  %t37 = load i32, ptr @BUF_SLOT_SIZE
-  %t38 = call i64 @sys_tls_read(i32 %t35, i32 %t36, i32 %t37)
-  %t39 = trunc i64 %t38 to i32
-  %t40 = add i32 0, 0
-  %t41 = or i32 %t39, %t40
-  store i32 %t41, ptr %n
-  %t42 = load i32, ptr %n
-  %t43 = add i32 0, 1
-  %t44 = sub i32 0, %t43
-  %t45 = icmp eq i32 %t42, %t44
-  %t46 = zext i1 %t45 to i32
-  %t47 = load i32, ptr %n
-  %t48 = add i32 0, 2
-  %t49 = sub i32 0, %t48
-  %t50 = icmp eq i32 %t47, %t49
-  %t51 = zext i1 %t50 to i32
-  %t52 = or i32 %t46, %t51
-  %t53 = icmp ne i32 %t52, 0
-  br i1 %t53, label %then.1, label %merge.1
+  %t35 = add i32 0, 0
+  store i32 %t35, ptr %n
+  %t36 = call i64 @sys_is_benchmark()
+  %t37 = trunc i64 %t36 to i32
+  %t38 = add i32 0, 0
+  %t39 = or i32 %t37, %t38
+  %t40 = add i32 0, 1
+  %t41 = icmp eq i32 %t39, %t40
+  %t42 = zext i1 %t41 to i32
+  %t43 = icmp ne i32 %t42, 0
+  br i1 %t43, label %then.1, label %else.1
 then.1:
-  %t54 = add i32 0, 0
-  ret i32 %t54
+  %t44 = load i32, ptr %fd
+  %t45 = load i32, ptr %buf_offset
+  %t46 = load i32, ptr @BUF_SLOT_SIZE
+  %t47 = call i64 @sys_socket_read(i32 %t44, i32 %t45, i32 %t46)
+  %t48 = trunc i64 %t47 to i32
+  %t49 = add i32 0, 0
+  %t50 = or i32 %t48, %t49
+  store i32 %t50, ptr %n
+  br label %merge.1
+else.1:
+  %t51 = trunc i64 %slot to i32
+  %t52 = load i32, ptr %buf_offset
+  %t53 = load i32, ptr @BUF_SLOT_SIZE
+  %t54 = call i64 @sys_tls_read(i32 %t51, i32 %t52, i32 %t53)
+  %t55 = trunc i64 %t54 to i32
+  %t56 = add i32 0, 0
+  %t57 = or i32 %t55, %t56
+  store i32 %t57, ptr %n
   br label %merge.1
 merge.1:
-  %t55 = load i32, ptr %n
-  %t56 = add i32 0, 0
-  %t57 = icmp sle i32 %t55, %t56
-  %t58 = zext i1 %t57 to i32
-  %t59 = icmp ne i32 %t58, 0
-  br i1 %t59, label %then.2, label %merge.2
+  %t58 = load i32, ptr %n
+  %t59 = add i32 0, 1
+  %t60 = sub i32 0, %t59
+  %t61 = icmp eq i32 %t58, %t60
+  %t62 = zext i1 %t61 to i32
+  %t63 = load i32, ptr %n
+  %t64 = add i32 0, 2
+  %t65 = sub i32 0, %t64
+  %t66 = icmp eq i32 %t63, %t65
+  %t67 = zext i1 %t66 to i32
+  %t68 = or i32 %t62, %t67
+  %t69 = icmp ne i32 %t68, 0
+  br i1 %t69, label %then.2, label %merge.2
 then.2:
-  %t60 = trunc i64 %kq to i32
-  %t61 = zext i32 %t60 to i64
-  %t62 = trunc i64 %slot to i32
-  %t63 = zext i32 %t62 to i64
-  %t64 = call i32 @closeSlot(i64 %t61, i64 %t63)
-  %t65 = add i32 0, 0
-  ret i32 %t65
+  %t70 = add i32 0, 0
+  ret i32 %t70
   br label %merge.2
 merge.2:
-  %t66 = trunc i64 %slot to i32
-  %t67 = zext i32 %t66 to i64
-  %t68 = load i32, ptr @current_sec
-  %t69 = add i32 0, 30
-  %t70 = add i32 %t68, %t69
-  %t71 = add i32 0, 0
-  %t72 = or i32 %t70, %t71
-  %t73 = zext i32 %t72 to i64
-  %t74 = call i32 @timeout_touch(i64 %t67, i64 %t73)
-  %t75 = load i32, ptr @bytes_read
-  %t76 = trunc i64 %slot to i32
-  %t77 = mul i32 4, %t76
-  %t78 = add i32 %t75, %t77
-  %t79 = load ptr, ptr @ohn_heap_base
-  %t80 = getelementptr i8, ptr %t79, i32 %t78
-  %t81 = load i32, ptr %t80
-  %t82 = load i32, ptr %n
-  %t83 = add i32 %t81, %t82
-  %t84 = add i32 0, 0
-  %t85 = or i32 %t83, %t84
-  %t86 = load i32, ptr @bytes_read
-  %t87 = trunc i64 %slot to i32
-  %t88 = mul i32 4, %t87
-  %t89 = add i32 %t86, %t88
-  %t90 = load ptr, ptr @ohn_heap_base
-  %t91 = getelementptr i8, ptr %t90, i32 %t89
-  store i32 %t85, ptr %t91
-  %t92 = load i32, ptr @bytes_read
-  %t93 = trunc i64 %slot to i32
-  %t94 = mul i32 4, %t93
-  %t95 = add i32 %t92, %t94
-  %t96 = load ptr, ptr @ohn_heap_base
-  %t97 = getelementptr i8, ptr %t96, i32 %t95
-  %t98 = load i32, ptr %t97
-  %t99 = add i32 0, 0
-  %t100 = or i32 %t98, %t99
-  store i32 %t100, ptr %total_read
-  %t101 = load i32, ptr @parse_state
-  %t102 = trunc i64 %slot to i32
-  %t103 = mul i32 4, %t102
-  %t104 = add i32 %t101, %t103
-  %t105 = load ptr, ptr @ohn_heap_base
-  %t106 = getelementptr i8, ptr %t105, i32 %t104
-  %t107 = load i32, ptr %t106
-  %t108 = add i32 0, 0
-  %t109 = or i32 %t107, %t108
-  %t110 = add i32 0, 0
-  %t111 = icmp eq i32 %t109, %t110
-  %t112 = zext i1 %t111 to i32
-  %t113 = load i32, ptr %total_read
-  %t114 = add i32 0, 5
-  %t115 = icmp sge i32 %t113, %t114
-  %t116 = zext i1 %t115 to i32
-  %t117 = and i32 %t112, %t116
-  %t118 = icmp ne i32 %t117, 0
-  br i1 %t118, label %then.3, label %merge.3
+  %t71 = load i32, ptr %n
+  %t72 = add i32 0, 0
+  %t73 = icmp sle i32 %t71, %t72
+  %t74 = zext i1 %t73 to i32
+  %t75 = icmp ne i32 %t74, 0
+  br i1 %t75, label %then.3, label %merge.3
 then.3:
-  %t119 = load i32, ptr %buf_offset
-  %t120 = zext i32 %t119 to i64
-  %t121 = call i32 @http_parse_method(i64 %t120)
-  %t122 = add i32 0, 0
-  %t123 = or i32 %t121, %t122
-  store i32 %t123, ptr %method
-  %t124 = load i32, ptr %method
-  %t125 = load i32, ptr @parse_method
-  %t126 = trunc i64 %slot to i32
-  %t127 = mul i32 4, %t126
-  %t128 = add i32 %t125, %t127
-  %t129 = load ptr, ptr @ohn_heap_base
-  %t130 = getelementptr i8, ptr %t129, i32 %t128
-  store i32 %t124, ptr %t130
-  %t131 = add i32 0, 4
-  store i32 %t131, ptr %offset
-  %t132 = load i32, ptr %method
-  %t133 = add i32 0, 2
-  %t134 = icmp eq i32 %t132, %t133
-  %t135 = zext i1 %t134 to i32
-  %t136 = icmp ne i32 %t135, 0
-  br i1 %t136, label %then.4, label %merge.4
-then.4:
-  %t137 = add i32 0, 5
-  store i32 %t137, ptr %offset
-  br label %merge.4
-merge.4:
-  %t138 = load i32, ptr %offset
-  %t139 = load i32, ptr @bytes_processed
-  %t140 = trunc i64 %slot to i32
-  %t141 = mul i32 4, %t140
-  %t142 = add i32 %t139, %t141
-  %t143 = load ptr, ptr @ohn_heap_base
-  %t144 = getelementptr i8, ptr %t143, i32 %t142
-  store i32 %t138, ptr %t144
-  %t145 = add i32 0, 1
-  %t146 = load i32, ptr @parse_state
-  %t147 = trunc i64 %slot to i32
-  %t148 = mul i32 4, %t147
-  %t149 = add i32 %t146, %t148
-  %t150 = load ptr, ptr @ohn_heap_base
-  %t151 = getelementptr i8, ptr %t150, i32 %t149
-  store i32 %t145, ptr %t151
+  %t76 = trunc i64 %poll_fd to i32
+  %t77 = zext i32 %t76 to i64
+  %t78 = trunc i64 %slot to i32
+  %t79 = zext i32 %t78 to i64
+  %t80 = call i32 @closeSlot(i64 %t77, i64 %t79)
+  %t81 = add i32 0, 0
+  ret i32 %t81
   br label %merge.3
 merge.3:
-  %t152 = load i32, ptr @parse_state
-  %t153 = trunc i64 %slot to i32
-  %t154 = mul i32 4, %t153
-  %t155 = add i32 %t152, %t154
-  %t156 = load ptr, ptr @ohn_heap_base
-  %t157 = getelementptr i8, ptr %t156, i32 %t155
-  %t158 = load i32, ptr %t157
-  %t159 = add i32 0, 0
-  %t160 = or i32 %t158, %t159
-  %t161 = add i32 0, 1
-  %t162 = icmp eq i32 %t160, %t161
-  %t163 = zext i1 %t162 to i32
-  %t164 = icmp ne i32 %t163, 0
-  br i1 %t164, label %then.5, label %merge.5
+  %t82 = trunc i64 %slot to i32
+  %t83 = zext i32 %t82 to i64
+  %t84 = load i32, ptr @current_sec
+  %t85 = add i32 0, 30
+  %t86 = add i32 %t84, %t85
+  %t87 = add i32 0, 0
+  %t88 = or i32 %t86, %t87
+  %t89 = zext i32 %t88 to i64
+  %t90 = call i32 @timeout_touch(i64 %t83, i64 %t89)
+  %t91 = load i32, ptr @bytes_read
+  %t92 = trunc i64 %slot to i32
+  %t93 = mul i32 4, %t92
+  %t94 = add i32 %t91, %t93
+  %t95 = load ptr, ptr @ohn_heap_base
+  %t96 = getelementptr i8, ptr %t95, i32 %t94
+  %t97 = load i32, ptr %t96
+  %t98 = load i32, ptr %n
+  %t99 = add i32 %t97, %t98
+  %t100 = add i32 0, 0
+  %t101 = or i32 %t99, %t100
+  %t102 = load i32, ptr @bytes_read
+  %t103 = trunc i64 %slot to i32
+  %t104 = mul i32 4, %t103
+  %t105 = add i32 %t102, %t104
+  %t106 = load ptr, ptr @ohn_heap_base
+  %t107 = getelementptr i8, ptr %t106, i32 %t105
+  store i32 %t101, ptr %t107
+  %t108 = load i32, ptr @bytes_read
+  %t109 = trunc i64 %slot to i32
+  %t110 = mul i32 4, %t109
+  %t111 = add i32 %t108, %t110
+  %t112 = load ptr, ptr @ohn_heap_base
+  %t113 = getelementptr i8, ptr %t112, i32 %t111
+  %t114 = load i32, ptr %t113
+  %t115 = add i32 0, 0
+  %t116 = or i32 %t114, %t115
+  store i32 %t116, ptr %total_read
+  %t117 = load i32, ptr @parse_state
+  %t118 = trunc i64 %slot to i32
+  %t119 = mul i32 4, %t118
+  %t120 = add i32 %t117, %t119
+  %t121 = load ptr, ptr @ohn_heap_base
+  %t122 = getelementptr i8, ptr %t121, i32 %t120
+  %t123 = load i32, ptr %t122
+  %t124 = add i32 0, 0
+  %t125 = or i32 %t123, %t124
+  %t126 = add i32 0, 0
+  %t127 = icmp eq i32 %t125, %t126
+  %t128 = zext i1 %t127 to i32
+  %t129 = load i32, ptr %total_read
+  %t130 = add i32 0, 5
+  %t131 = icmp sge i32 %t129, %t130
+  %t132 = zext i1 %t131 to i32
+  %t133 = and i32 %t128, %t132
+  %t134 = icmp ne i32 %t133, 0
+  br i1 %t134, label %then.4, label %merge.4
+then.4:
+  %t135 = load i32, ptr %buf_offset
+  %t136 = zext i32 %t135 to i64
+  %t137 = call i32 @http_parse_method(i64 %t136)
+  %t138 = add i32 0, 0
+  %t139 = or i32 %t137, %t138
+  store i32 %t139, ptr %method
+  %t140 = load i32, ptr %method
+  %t141 = load i32, ptr @parse_method
+  %t142 = trunc i64 %slot to i32
+  %t143 = mul i32 4, %t142
+  %t144 = add i32 %t141, %t143
+  %t145 = load ptr, ptr @ohn_heap_base
+  %t146 = getelementptr i8, ptr %t145, i32 %t144
+  store i32 %t140, ptr %t146
+  %t147 = add i32 0, 4
+  store i32 %t147, ptr %offset
+  %t148 = load i32, ptr %method
+  %t149 = add i32 0, 2
+  %t150 = icmp eq i32 %t148, %t149
+  %t151 = zext i1 %t150 to i32
+  %t152 = icmp ne i32 %t151, 0
+  br i1 %t152, label %then.5, label %merge.5
 then.5:
-  %t165 = load i32, ptr @bytes_processed
-  %t166 = trunc i64 %slot to i32
-  %t167 = mul i32 4, %t166
-  %t168 = add i32 %t165, %t167
-  %t169 = load ptr, ptr @ohn_heap_base
-  %t170 = getelementptr i8, ptr %t169, i32 %t168
-  %t171 = load i32, ptr %t170
-  %t172 = add i32 0, 0
-  %t173 = or i32 %t171, %t172
-  store i32 %t173, ptr %current_offset
-  %t174 = load i32, ptr %buf_offset
-  %t175 = zext i32 %t174 to i64
-  %t176 = load i32, ptr %current_offset
-  %t177 = zext i32 %t176 to i64
-  %t178 = load i32, ptr %total_read
-  %t179 = zext i32 %t178 to i64
-  %t180 = call i32 @http_parse_route_hash(i64 %t175, i64 %t177, i64 %t179)
-  %t181 = add i32 0, 0
-  %t182 = or i32 %t180, %t181
-  store i32 %t182, ptr %result
-  %t183 = load i32, ptr %result
-  %t184 = add i32 0, 1
-  %t185 = icmp eq i32 %t183, %t184
-  %t186 = zext i1 %t185 to i32
-  %t187 = icmp ne i32 %t186, 0
-  br i1 %t187, label %then.6, label %else.6
+  %t153 = add i32 0, 5
+  store i32 %t153, ptr %offset
+  br label %merge.5
+merge.5:
+  %t154 = load i32, ptr %offset
+  %t155 = load i32, ptr @bytes_processed
+  %t156 = trunc i64 %slot to i32
+  %t157 = mul i32 4, %t156
+  %t158 = add i32 %t155, %t157
+  %t159 = load ptr, ptr @ohn_heap_base
+  %t160 = getelementptr i8, ptr %t159, i32 %t158
+  store i32 %t154, ptr %t160
+  %t161 = add i32 0, 1
+  %t162 = load i32, ptr @parse_state
+  %t163 = trunc i64 %slot to i32
+  %t164 = mul i32 4, %t163
+  %t165 = add i32 %t162, %t164
+  %t166 = load ptr, ptr @ohn_heap_base
+  %t167 = getelementptr i8, ptr %t166, i32 %t165
+  store i32 %t161, ptr %t167
+  br label %merge.4
+merge.4:
+  %t168 = load i32, ptr @parse_state
+  %t169 = trunc i64 %slot to i32
+  %t170 = mul i32 4, %t169
+  %t171 = add i32 %t168, %t170
+  %t172 = load ptr, ptr @ohn_heap_base
+  %t173 = getelementptr i8, ptr %t172, i32 %t171
+  %t174 = load i32, ptr %t173
+  %t175 = add i32 0, 0
+  %t176 = or i32 %t174, %t175
+  %t177 = add i32 0, 1
+  %t178 = icmp eq i32 %t176, %t177
+  %t179 = zext i1 %t178 to i32
+  %t180 = icmp ne i32 %t179, 0
+  br i1 %t180, label %then.6, label %merge.6
 then.6:
-  %t188 = load i32, ptr @parse_result
-  %t189 = add i32 0, 0
-  %t190 = mul i32 4, %t189
-  %t191 = add i32 %t188, %t190
-  %t192 = load ptr, ptr @ohn_heap_base
-  %t193 = getelementptr i8, ptr %t192, i32 %t191
-  %t194 = load i32, ptr %t193
-  %t195 = add i32 0, 0
-  %t196 = or i32 %t194, %t195
-  %t197 = load i32, ptr @current_hash
-  %t198 = trunc i64 %slot to i32
-  %t199 = mul i32 4, %t198
-  %t200 = add i32 %t197, %t199
-  %t201 = load ptr, ptr @ohn_heap_base
-  %t202 = getelementptr i8, ptr %t201, i32 %t200
-  store i32 %t196, ptr %t202
-  %t203 = load i32, ptr @parse_result
-  %t204 = add i32 0, 1
-  %t205 = mul i32 4, %t204
-  %t206 = add i32 %t203, %t205
-  %t207 = load ptr, ptr @ohn_heap_base
-  %t208 = getelementptr i8, ptr %t207, i32 %t206
-  %t209 = load i32, ptr %t208
-  %t210 = add i32 0, 0
-  %t211 = or i32 %t209, %t210
-  %t212 = load i32, ptr @bytes_processed
-  %t213 = trunc i64 %slot to i32
-  %t214 = mul i32 4, %t213
-  %t215 = add i32 %t212, %t214
-  %t216 = load ptr, ptr @ohn_heap_base
-  %t217 = getelementptr i8, ptr %t216, i32 %t215
-  store i32 %t211, ptr %t217
-  %t218 = add i32 0, 2
-  %t219 = load i32, ptr @parse_state
-  %t220 = trunc i64 %slot to i32
+  %t181 = load i32, ptr @bytes_processed
+  %t182 = trunc i64 %slot to i32
+  %t183 = mul i32 4, %t182
+  %t184 = add i32 %t181, %t183
+  %t185 = load ptr, ptr @ohn_heap_base
+  %t186 = getelementptr i8, ptr %t185, i32 %t184
+  %t187 = load i32, ptr %t186
+  %t188 = add i32 0, 0
+  %t189 = or i32 %t187, %t188
+  store i32 %t189, ptr %current_offset
+  %t190 = load i32, ptr %buf_offset
+  %t191 = zext i32 %t190 to i64
+  %t192 = load i32, ptr %current_offset
+  %t193 = zext i32 %t192 to i64
+  %t194 = load i32, ptr %total_read
+  %t195 = zext i32 %t194 to i64
+  %t196 = call i32 @http_parse_route_hash(i64 %t191, i64 %t193, i64 %t195)
+  %t197 = add i32 0, 0
+  %t198 = or i32 %t196, %t197
+  store i32 %t198, ptr %result
+  %t199 = load i32, ptr %result
+  %t200 = add i32 0, 1
+  %t201 = icmp eq i32 %t199, %t200
+  %t202 = zext i1 %t201 to i32
+  %t203 = icmp ne i32 %t202, 0
+  br i1 %t203, label %then.7, label %else.7
+then.7:
+  %t204 = load i32, ptr @parse_result
+  %t205 = add i32 0, 0
+  %t206 = mul i32 4, %t205
+  %t207 = add i32 %t204, %t206
+  %t208 = load ptr, ptr @ohn_heap_base
+  %t209 = getelementptr i8, ptr %t208, i32 %t207
+  %t210 = load i32, ptr %t209
+  %t211 = add i32 0, 0
+  %t212 = or i32 %t210, %t211
+  %t213 = load i32, ptr @current_hash
+  %t214 = trunc i64 %slot to i32
+  %t215 = mul i32 4, %t214
+  %t216 = add i32 %t213, %t215
+  %t217 = load ptr, ptr @ohn_heap_base
+  %t218 = getelementptr i8, ptr %t217, i32 %t216
+  store i32 %t212, ptr %t218
+  %t219 = load i32, ptr @parse_result
+  %t220 = add i32 0, 1
   %t221 = mul i32 4, %t220
   %t222 = add i32 %t219, %t221
   %t223 = load ptr, ptr @ohn_heap_base
   %t224 = getelementptr i8, ptr %t223, i32 %t222
-  store i32 %t218, ptr %t224
-  br label %merge.6
-else.6:
-  %t225 = load i32, ptr %result
-  %t226 = add i32 0, 1
-  %t227 = sub i32 0, %t226
-  %t228 = icmp eq i32 %t225, %t227
-  %t229 = zext i1 %t228 to i32
-  %t230 = load i32, ptr %total_read
-  %t231 = add i32 0, 2048
-  %t232 = icmp sgt i32 %t230, %t231
-  %t233 = zext i1 %t232 to i32
-  %t234 = and i32 %t229, %t233
-  %t235 = icmp ne i32 %t234, 0
-  br i1 %t235, label %then.7, label %merge.7
-then.7:
-  %t236 = trunc i64 %kq to i32
-  %t237 = zext i32 %t236 to i64
-  %t238 = trunc i64 %slot to i32
-  %t239 = zext i32 %t238 to i64
-  %t240 = call i32 @closeSlot(i64 %t237, i64 %t239)
-  %t241 = add i32 0, 0
-  ret i32 %t241
+  %t225 = load i32, ptr %t224
+  %t226 = add i32 0, 0
+  %t227 = or i32 %t225, %t226
+  %t228 = load i32, ptr @bytes_processed
+  %t229 = trunc i64 %slot to i32
+  %t230 = mul i32 4, %t229
+  %t231 = add i32 %t228, %t230
+  %t232 = load ptr, ptr @ohn_heap_base
+  %t233 = getelementptr i8, ptr %t232, i32 %t231
+  store i32 %t227, ptr %t233
+  %t234 = add i32 0, 2
+  %t235 = load i32, ptr @parse_state
+  %t236 = trunc i64 %slot to i32
+  %t237 = mul i32 4, %t236
+  %t238 = add i32 %t235, %t237
+  %t239 = load ptr, ptr @ohn_heap_base
+  %t240 = getelementptr i8, ptr %t239, i32 %t238
+  store i32 %t234, ptr %t240
+  br label %merge.7
+else.7:
+  %t241 = load i32, ptr %result
+  %t242 = add i32 0, 1
+  %t243 = sub i32 0, %t242
+  %t244 = icmp eq i32 %t241, %t243
+  %t245 = zext i1 %t244 to i32
+  %t246 = load i32, ptr %total_read
+  %t247 = add i32 0, 2048
+  %t248 = icmp sgt i32 %t246, %t247
+  %t249 = zext i1 %t248 to i32
+  %t250 = and i32 %t245, %t249
+  %t251 = icmp ne i32 %t250, 0
+  br i1 %t251, label %then.8, label %merge.8
+then.8:
+  %t252 = trunc i64 %poll_fd to i32
+  %t253 = zext i32 %t252 to i64
+  %t254 = trunc i64 %slot to i32
+  %t255 = zext i32 %t254 to i64
+  %t256 = call i32 @closeSlot(i64 %t253, i64 %t255)
+  %t257 = add i32 0, 0
+  ret i32 %t257
+  br label %merge.8
+merge.8:
   br label %merge.7
 merge.7:
   br label %merge.6
 merge.6:
-  br label %merge.5
-merge.5:
-  %t242 = load i32, ptr @parse_state
-  %t243 = trunc i64 %slot to i32
-  %t244 = mul i32 4, %t243
-  %t245 = add i32 %t242, %t244
-  %t246 = load ptr, ptr @ohn_heap_base
-  %t247 = getelementptr i8, ptr %t246, i32 %t245
-  %t248 = load i32, ptr %t247
-  %t249 = add i32 0, 0
-  %t250 = or i32 %t248, %t249
-  %t251 = add i32 0, 2
-  %t252 = icmp eq i32 %t250, %t251
-  %t253 = zext i1 %t252 to i32
-  %t254 = icmp ne i32 %t253, 0
-  br i1 %t254, label %then.8, label %merge.8
-then.8:
-  %t255 = load i32, ptr %buf_offset
-  %t256 = zext i32 %t255 to i64
-  %t257 = load i32, ptr %total_read
-  %t258 = zext i32 %t257 to i64
-  %t259 = call i32 @http_find_headers_end(i64 %t256, i64 %t258)
-  %t260 = add i32 0, 0
-  %t261 = or i32 %t259, %t260
-  store i32 %t261, ptr %header_end
-  %t262 = load i32, ptr %header_end
-  %t263 = add i32 0, 0
-  %t264 = icmp sgt i32 %t262, %t263
-  %t265 = zext i1 %t264 to i32
-  %t266 = icmp ne i32 %t265, 0
-  br i1 %t266, label %then.9, label %merge.9
+  %t258 = load i32, ptr @parse_state
+  %t259 = trunc i64 %slot to i32
+  %t260 = mul i32 4, %t259
+  %t261 = add i32 %t258, %t260
+  %t262 = load ptr, ptr @ohn_heap_base
+  %t263 = getelementptr i8, ptr %t262, i32 %t261
+  %t264 = load i32, ptr %t263
+  %t265 = add i32 0, 0
+  %t266 = or i32 %t264, %t265
+  %t267 = add i32 0, 2
+  %t268 = icmp eq i32 %t266, %t267
+  %t269 = zext i1 %t268 to i32
+  %t270 = icmp ne i32 %t269, 0
+  br i1 %t270, label %then.9, label %merge.9
 then.9:
-  %t267 = trunc i64 %kq to i32
-  %t268 = load i32, ptr %fd
-  %t269 = load i32, ptr @EVFILT_READ
-  %t270 = load i32, ptr @EV_DELETE
-  %t271 = call i64 @sys_kqueue_register(i32 %t267, i32 %t268, i32 %t269, i32 %t270)
-  %t272 = trunc i64 %t271 to i32
-  %t273 = load i32, ptr @parse_method
-  %t274 = trunc i64 %slot to i32
-  %t275 = mul i32 4, %t274
-  %t276 = add i32 %t273, %t275
-  %t277 = load ptr, ptr @ohn_heap_base
-  %t278 = getelementptr i8, ptr %t277, i32 %t276
-  %t279 = load i32, ptr %t278
-  %t280 = add i32 0, 0
-  %t281 = or i32 %t279, %t280
-  store i32 %t281, ptr %method
-  %t282 = load i32, ptr @current_hash
-  %t283 = trunc i64 %slot to i32
-  %t284 = mul i32 4, %t283
-  %t285 = add i32 %t282, %t284
-  %t286 = load ptr, ptr @ohn_heap_base
-  %t287 = getelementptr i8, ptr %t286, i32 %t285
-  %t288 = load i32, ptr %t287
-  %t289 = add i32 0, 0
-  %t290 = or i32 %t288, %t289
-  store i32 %t290, ptr %hash
-  %t291 = load i32, ptr %method
-  %t292 = zext i32 %t291 to i64
-  %t293 = load i32, ptr %hash
-  %t294 = zext i32 %t293 to i64
-  %t295 = load i32, ptr %buf_offset
-  %t296 = zext i32 %t295 to i64
-  %t297 = call i32 @router_handle(i64 %t292, i64 %t294, i64 %t296)
-  %t298 = add i32 0, 0
-  %t299 = or i32 %t297, %t298
-  store i32 %t299, ptr %resp_len
-  %t300 = load i32, ptr %resp_len
-  %t301 = load i32, ptr @bytes_written
-  %t302 = trunc i64 %slot to i32
-  %t303 = mul i32 4, %t302
-  %t304 = add i32 %t301, %t303
-  %t305 = load ptr, ptr @ohn_heap_base
-  %t306 = getelementptr i8, ptr %t305, i32 %t304
-  store i32 %t300, ptr %t306
-  %t307 = load i32, ptr @STATE_WRITING
-  %t308 = load i32, ptr @state_table
-  %t309 = trunc i64 %slot to i32
-  %t310 = mul i32 4, %t309
-  %t311 = add i32 %t308, %t310
-  %t312 = load ptr, ptr @ohn_heap_base
-  %t313 = getelementptr i8, ptr %t312, i32 %t311
-  store i32 %t307, ptr %t313
-  %t314 = trunc i64 %kq to i32
-  %t315 = load i32, ptr %fd
-  %t316 = load i32, ptr @EVFILT_WRITE
-  %t317 = load i32, ptr @EV_ADD
-  %t318 = call i64 @sys_kqueue_register(i32 %t314, i32 %t315, i32 %t316, i32 %t317)
-  %t319 = trunc i64 %t318 to i32
+  %t271 = load i32, ptr %buf_offset
+  %t272 = zext i32 %t271 to i64
+  %t273 = load i32, ptr %total_read
+  %t274 = zext i32 %t273 to i64
+  %t275 = call i32 @http_find_headers_end(i64 %t272, i64 %t274)
+  %t276 = add i32 0, 0
+  %t277 = or i32 %t275, %t276
+  store i32 %t277, ptr %header_end
+  %t278 = load i32, ptr %header_end
+  %t279 = add i32 0, 0
+  %t280 = icmp sgt i32 %t278, %t279
+  %t281 = zext i1 %t280 to i32
+  %t282 = icmp ne i32 %t281, 0
+  br i1 %t282, label %then.10, label %merge.10
+then.10:
+  %t283 = load i32, ptr @parse_method
+  %t284 = trunc i64 %slot to i32
+  %t285 = mul i32 4, %t284
+  %t286 = add i32 %t283, %t285
+  %t287 = load ptr, ptr @ohn_heap_base
+  %t288 = getelementptr i8, ptr %t287, i32 %t286
+  %t289 = load i32, ptr %t288
+  %t290 = add i32 0, 0
+  %t291 = or i32 %t289, %t290
+  store i32 %t291, ptr %method
+  %t292 = load i32, ptr @current_hash
+  %t293 = trunc i64 %slot to i32
+  %t294 = mul i32 4, %t293
+  %t295 = add i32 %t292, %t294
+  %t296 = load ptr, ptr @ohn_heap_base
+  %t297 = getelementptr i8, ptr %t296, i32 %t295
+  %t298 = load i32, ptr %t297
+  %t299 = add i32 0, 0
+  %t300 = or i32 %t298, %t299
+  store i32 %t300, ptr %hash
+  %t301 = load i32, ptr %method
+  %t302 = zext i32 %t301 to i64
+  %t303 = load i32, ptr %hash
+  %t304 = zext i32 %t303 to i64
+  %t305 = load i32, ptr %buf_offset
+  %t306 = zext i32 %t305 to i64
+  %t307 = call i32 @router_handle(i64 %t302, i64 %t304, i64 %t306)
+  %t308 = add i32 0, 0
+  %t309 = or i32 %t307, %t308
+  store i32 %t309, ptr %resp_len
+  %t310 = load i32, ptr %resp_len
+  %t311 = load i32, ptr @bytes_written
+  %t312 = trunc i64 %slot to i32
+  %t313 = mul i32 4, %t312
+  %t314 = add i32 %t311, %t313
+  %t315 = load ptr, ptr @ohn_heap_base
+  %t316 = getelementptr i8, ptr %t315, i32 %t314
+  store i32 %t310, ptr %t316
+  %t317 = load i32, ptr @STATE_WRITING
+  %t318 = load i32, ptr @state_table
+  %t319 = trunc i64 %slot to i32
+  %t320 = mul i32 4, %t319
+  %t321 = add i32 %t318, %t320
+  %t322 = load ptr, ptr @ohn_heap_base
+  %t323 = getelementptr i8, ptr %t322, i32 %t321
+  store i32 %t317, ptr %t323
+  %t324 = trunc i64 %poll_fd to i32
+  %t325 = load i32, ptr %fd
+  %t326 = load i32, ptr @POLL_WRITE
+  %t327 = call i64 @sys_poll_mod(i32 %t324, i32 %t325, i32 %t326)
+  %t328 = trunc i64 %t327 to i32
+  br label %merge.10
+merge.10:
   br label %merge.9
 merge.9:
-  br label %merge.8
-merge.8:
   ret i32 0
 }
 
-define i32 @handleWrite(i64 %kq, i64 %slot) {
+define i32 @handleWrite(i64 %poll_fd, i64 %slot) {
 entry:
   %fd = alloca i32
   %buf_offset = alloca i32
@@ -2607,7 +2636,7 @@ entry:
   %t12 = icmp ne i32 %t11, 0
   br i1 %t12, label %then.0, label %merge.0
 then.0:
-  %t13 = trunc i64 %kq to i32
+  %t13 = trunc i64 %poll_fd to i32
   %t14 = zext i32 %t13 to i64
   %t15 = trunc i64 %slot to i32
   %t16 = zext i32 %t15 to i64
@@ -2644,301 +2673,346 @@ merge.0:
   %t42 = add i32 0, 0
   %t43 = or i32 %t41, %t42
   store i32 %t43, ptr %to_write
-  %t44 = trunc i64 %slot to i32
-  %t45 = load i32, ptr %buf_offset
-  %t46 = load i32, ptr %to_write
-  %t47 = call i64 @sys_tls_write(i32 %t44, i32 %t45, i32 %t46)
-  %t48 = trunc i64 %t47 to i32
-  %t49 = add i32 0, 0
-  %t50 = or i32 %t48, %t49
-  store i32 %t50, ptr %n
-  %t51 = load i32, ptr %n
-  %t52 = add i32 0, 1
-  %t53 = sub i32 0, %t52
-  %t54 = icmp eq i32 %t51, %t53
-  %t55 = zext i1 %t54 to i32
-  %t56 = load i32, ptr %n
-  %t57 = add i32 0, 2
-  %t58 = sub i32 0, %t57
-  %t59 = icmp eq i32 %t56, %t58
-  %t60 = zext i1 %t59 to i32
-  %t61 = or i32 %t55, %t60
-  %t62 = icmp ne i32 %t61, 0
-  br i1 %t62, label %then.1, label %merge.1
+  %t44 = add i32 0, 0
+  store i32 %t44, ptr %n
+  %t45 = call i64 @sys_is_benchmark()
+  %t46 = trunc i64 %t45 to i32
+  %t47 = add i32 0, 0
+  %t48 = or i32 %t46, %t47
+  %t49 = add i32 0, 1
+  %t50 = icmp eq i32 %t48, %t49
+  %t51 = zext i1 %t50 to i32
+  %t52 = icmp ne i32 %t51, 0
+  br i1 %t52, label %then.1, label %else.1
 then.1:
-  %t63 = add i32 0, 0
-  ret i32 %t63
+  %t53 = load i32, ptr %fd
+  %t54 = load i32, ptr %buf_offset
+  %t55 = load i32, ptr %to_write
+  %t56 = call i64 @sys_socket_write(i32 %t53, i32 %t54, i32 %t55)
+  %t57 = trunc i64 %t56 to i32
+  %t58 = add i32 0, 0
+  %t59 = or i32 %t57, %t58
+  store i32 %t59, ptr %n
+  br label %merge.1
+else.1:
+  %t60 = trunc i64 %slot to i32
+  %t61 = load i32, ptr %buf_offset
+  %t62 = load i32, ptr %to_write
+  %t63 = call i64 @sys_tls_write(i32 %t60, i32 %t61, i32 %t62)
+  %t64 = trunc i64 %t63 to i32
+  %t65 = add i32 0, 0
+  %t66 = or i32 %t64, %t65
+  store i32 %t66, ptr %n
   br label %merge.1
 merge.1:
-  %t64 = load i32, ptr %n
-  %t65 = add i32 0, 0
-  %t66 = icmp slt i32 %t64, %t65
-  %t67 = zext i1 %t66 to i32
-  %t68 = icmp ne i32 %t67, 0
-  br i1 %t68, label %then.2, label %merge.2
+  %t67 = load i32, ptr %n
+  %t68 = add i32 0, 1
+  %t69 = sub i32 0, %t68
+  %t70 = icmp eq i32 %t67, %t69
+  %t71 = zext i1 %t70 to i32
+  %t72 = load i32, ptr %n
+  %t73 = add i32 0, 2
+  %t74 = sub i32 0, %t73
+  %t75 = icmp eq i32 %t72, %t74
+  %t76 = zext i1 %t75 to i32
+  %t77 = or i32 %t71, %t76
+  %t78 = icmp ne i32 %t77, 0
+  br i1 %t78, label %then.2, label %merge.2
 then.2:
-  %t69 = add i32 0, 0
-  ret i32 %t69
+  %t79 = add i32 0, 0
+  ret i32 %t79
   br label %merge.2
 merge.2:
-  %t70 = trunc i64 %slot to i32
-  %t71 = zext i32 %t70 to i64
-  %t72 = load i32, ptr @current_sec
-  %t73 = add i32 0, 30
-  %t74 = add i32 %t72, %t73
-  %t75 = add i32 0, 0
-  %t76 = or i32 %t74, %t75
-  %t77 = zext i32 %t76 to i64
-  %t78 = call i32 @timeout_touch(i64 %t71, i64 %t77)
-  %t79 = load i32, ptr @bytes_written
-  %t80 = trunc i64 %slot to i32
-  %t81 = mul i32 4, %t80
-  %t82 = add i32 %t79, %t81
-  %t83 = load ptr, ptr @ohn_heap_base
-  %t84 = getelementptr i8, ptr %t83, i32 %t82
-  %t85 = load i32, ptr %t84
-  %t86 = load i32, ptr %n
-  %t87 = sub i32 %t85, %t86
-  %t88 = add i32 0, 0
-  %t89 = or i32 %t87, %t88
-  %t90 = load i32, ptr @bytes_written
-  %t91 = trunc i64 %slot to i32
-  %t92 = mul i32 4, %t91
-  %t93 = add i32 %t90, %t92
-  %t94 = load ptr, ptr @ohn_heap_base
-  %t95 = getelementptr i8, ptr %t94, i32 %t93
-  store i32 %t89, ptr %t95
-  %t96 = load i32, ptr @bytes_written
-  %t97 = trunc i64 %slot to i32
-  %t98 = mul i32 4, %t97
-  %t99 = add i32 %t96, %t98
-  %t100 = load ptr, ptr @ohn_heap_base
-  %t101 = getelementptr i8, ptr %t100, i32 %t99
-  %t102 = load i32, ptr %t101
-  %t103 = add i32 0, 0
-  %t104 = or i32 %t102, %t103
-  %t105 = add i32 0, 0
-  %t106 = icmp sle i32 %t104, %t105
-  %t107 = zext i1 %t106 to i32
-  %t108 = icmp ne i32 %t107, 0
-  br i1 %t108, label %then.3, label %merge.3
+  %t80 = load i32, ptr %n
+  %t81 = add i32 0, 0
+  %t82 = icmp slt i32 %t80, %t81
+  %t83 = zext i1 %t82 to i32
+  %t84 = icmp ne i32 %t83, 0
+  br i1 %t84, label %then.3, label %merge.3
 then.3:
-  %t109 = trunc i64 %kq to i32
-  %t110 = load i32, ptr %fd
-  %t111 = load i32, ptr @EVFILT_WRITE
-  %t112 = load i32, ptr @EV_DELETE
-  %t113 = call i64 @sys_kqueue_register(i32 %t109, i32 %t110, i32 %t111, i32 %t112)
-  %t114 = trunc i64 %t113 to i32
-  %t115 = trunc i64 %kq to i32
-  %t116 = zext i32 %t115 to i64
-  %t117 = trunc i64 %slot to i32
-  %t118 = zext i32 %t117 to i64
-  %t119 = call i32 @closeSlot(i64 %t116, i64 %t118)
+  %t85 = add i32 0, 0
+  ret i32 %t85
   br label %merge.3
 merge.3:
+  %t86 = trunc i64 %slot to i32
+  %t87 = zext i32 %t86 to i64
+  %t88 = load i32, ptr @current_sec
+  %t89 = add i32 0, 30
+  %t90 = add i32 %t88, %t89
+  %t91 = add i32 0, 0
+  %t92 = or i32 %t90, %t91
+  %t93 = zext i32 %t92 to i64
+  %t94 = call i32 @timeout_touch(i64 %t87, i64 %t93)
+  %t95 = load i32, ptr @bytes_written
+  %t96 = trunc i64 %slot to i32
+  %t97 = mul i32 4, %t96
+  %t98 = add i32 %t95, %t97
+  %t99 = load ptr, ptr @ohn_heap_base
+  %t100 = getelementptr i8, ptr %t99, i32 %t98
+  %t101 = load i32, ptr %t100
+  %t102 = load i32, ptr %n
+  %t103 = sub i32 %t101, %t102
+  %t104 = add i32 0, 0
+  %t105 = or i32 %t103, %t104
+  %t106 = load i32, ptr @bytes_written
+  %t107 = trunc i64 %slot to i32
+  %t108 = mul i32 4, %t107
+  %t109 = add i32 %t106, %t108
+  %t110 = load ptr, ptr @ohn_heap_base
+  %t111 = getelementptr i8, ptr %t110, i32 %t109
+  store i32 %t105, ptr %t111
+  %t112 = load i32, ptr @bytes_written
+  %t113 = trunc i64 %slot to i32
+  %t114 = mul i32 4, %t113
+  %t115 = add i32 %t112, %t114
+  %t116 = load ptr, ptr @ohn_heap_base
+  %t117 = getelementptr i8, ptr %t116, i32 %t115
+  %t118 = load i32, ptr %t117
+  %t119 = add i32 0, 0
+  %t120 = or i32 %t118, %t119
+  %t121 = add i32 0, 0
+  %t122 = icmp sle i32 %t120, %t121
+  %t123 = zext i1 %t122 to i32
+  %t124 = icmp ne i32 %t123, 0
+  br i1 %t124, label %then.4, label %merge.4
+then.4:
+  %t125 = add i32 0, 0
+  %t126 = load i32, ptr @parse_state
+  %t127 = trunc i64 %slot to i32
+  %t128 = mul i32 4, %t127
+  %t129 = add i32 %t126, %t128
+  %t130 = load ptr, ptr @ohn_heap_base
+  %t131 = getelementptr i8, ptr %t130, i32 %t129
+  store i32 %t125, ptr %t131
+  %t132 = add i32 0, 0
+  %t133 = load i32, ptr @bytes_read
+  %t134 = trunc i64 %slot to i32
+  %t135 = mul i32 4, %t134
+  %t136 = add i32 %t133, %t135
+  %t137 = load ptr, ptr @ohn_heap_base
+  %t138 = getelementptr i8, ptr %t137, i32 %t136
+  store i32 %t132, ptr %t138
+  %t139 = load i32, ptr @STATE_READING
+  %t140 = load i32, ptr @state_table
+  %t141 = trunc i64 %slot to i32
+  %t142 = mul i32 4, %t141
+  %t143 = add i32 %t140, %t142
+  %t144 = load ptr, ptr @ohn_heap_base
+  %t145 = getelementptr i8, ptr %t144, i32 %t143
+  store i32 %t139, ptr %t145
+  %t146 = trunc i64 %poll_fd to i32
+  %t147 = load i32, ptr %fd
+  %t148 = load i32, ptr @POLL_READ
+  %t149 = call i64 @sys_poll_mod(i32 %t146, i32 %t147, i32 %t148)
+  %t150 = trunc i64 %t149 to i32
+  br label %merge.4
+merge.4:
   ret i32 0
 }
 
 define i32 @ohn_event_loop_run(i64 %listen_fd) {
 entry:
-  %kq = alloca i32
+  %poll_fd = alloca i32
   %event_buf_ptr = alloca i32
   %TIMEOUT_MS = alloca i32
   %n = alloca i32
   %expired_slot = alloca i32
   %i = alloca i32
   %ev_fd = alloca i32
-  %ev_filter = alloca i32
+  %ev_events = alloca i32
   %slot = alloca i32
-  %t0 = call i64 @sys_kqueue_create()
+  %t0 = call i64 @sys_poll_create()
   %t1 = trunc i64 %t0 to i32
   %t2 = add i32 0, 0
   %t3 = or i32 %t1, %t2
-  store i32 %t3, ptr %kq
-  %t4 = load i32, ptr %kq
+  store i32 %t3, ptr %poll_fd
+  %t4 = load i32, ptr %poll_fd
   %t5 = trunc i64 %listen_fd to i32
-  %t6 = load i32, ptr @EVFILT_READ
-  %t7 = load i32, ptr @EV_ADD
-  %t8 = call i64 @sys_kqueue_register(i32 %t4, i32 %t5, i32 %t6, i32 %t7)
-  %t9 = trunc i64 %t8 to i32
-  %t10 = add i32 0, 0
-  store i32 %t10, ptr %event_buf_ptr
-  %t11 = add i32 0, 1000
-  store i32 %t11, ptr %TIMEOUT_MS
+  %t6 = load i32, ptr @POLL_READ
+  %t7 = call i64 @sys_poll_add(i32 %t4, i32 %t5, i32 %t6)
+  %t8 = trunc i64 %t7 to i32
+  %t9 = add i32 0, 0
+  store i32 %t9, ptr %event_buf_ptr
+  %t10 = add i32 0, 1000
+  store i32 %t10, ptr %TIMEOUT_MS
   br label %loop.0
 loop.0:
-  %t12 = add i32 0, 1
-  %t13 = icmp ne i32 %t12, 0
-  br i1 %t13, label %body.0, label %exit.0
+  %t11 = add i32 0, 1
+  %t12 = icmp ne i32 %t11, 0
+  br i1 %t12, label %body.0, label %exit.0
 body.0:
-  %t14 = load i32, ptr %kq
-  %t15 = load i32, ptr %event_buf_ptr
-  %t16 = load i32, ptr @MAX_EVENTS
-  %t17 = load i32, ptr %TIMEOUT_MS
-  %t18 = call i64 @sys_kqueue_wait(i32 %t14, i32 %t15, i32 %t16, i32 %t17)
-  %t19 = trunc i64 %t18 to i32
-  %t20 = add i32 0, 0
-  %t21 = or i32 %t19, %t20
-  store i32 %t21, ptr %n
-  %t22 = call i64 @sys_time_sec()
-  %t23 = trunc i64 %t22 to i32
-  %t24 = add i32 0, 0
-  %t25 = or i32 %t23, %t24
-  store i32 %t25, ptr @current_sec
+  %t13 = load i32, ptr %poll_fd
+  %t14 = load i32, ptr %event_buf_ptr
+  %t15 = load i32, ptr @MAX_EVENTS
+  %t16 = load i32, ptr %TIMEOUT_MS
+  %t17 = call i64 @sys_poll_wait(i32 %t13, i32 %t14, i32 %t15, i32 %t16)
+  %t18 = trunc i64 %t17 to i32
+  %t19 = add i32 0, 0
+  %t20 = or i32 %t18, %t19
+  store i32 %t20, ptr %n
+  %t21 = call i64 @sys_time_sec()
+  %t22 = trunc i64 %t21 to i32
+  %t23 = add i32 0, 0
+  %t24 = or i32 %t22, %t23
+  store i32 %t24, ptr @current_sec
   br label %loop.1
 loop.1:
-  %t26 = add i32 0, 1
-  %t27 = icmp ne i32 %t26, 0
-  br i1 %t27, label %body.1, label %exit.1
+  %t25 = add i32 0, 1
+  %t26 = icmp ne i32 %t25, 0
+  br i1 %t26, label %body.1, label %exit.1
 body.1:
-  %t28 = load i32, ptr @current_sec
-  %t29 = zext i32 %t28 to i64
-  %t30 = call i32 @timeout_poll(i64 %t29)
-  %t31 = add i32 0, 0
-  %t32 = or i32 %t30, %t31
-  store i32 %t32, ptr %expired_slot
-  %t33 = load i32, ptr %expired_slot
-  %t34 = add i32 0, 0
-  %t35 = icmp slt i32 %t33, %t34
-  %t36 = zext i1 %t35 to i32
-  %t37 = icmp ne i32 %t36, 0
-  br i1 %t37, label %then.2, label %merge.2
+  %t27 = load i32, ptr @current_sec
+  %t28 = zext i32 %t27 to i64
+  %t29 = call i32 @timeout_poll(i64 %t28)
+  %t30 = add i32 0, 0
+  %t31 = or i32 %t29, %t30
+  store i32 %t31, ptr %expired_slot
+  %t32 = load i32, ptr %expired_slot
+  %t33 = add i32 0, 0
+  %t34 = icmp slt i32 %t32, %t33
+  %t35 = zext i1 %t34 to i32
+  %t36 = icmp ne i32 %t35, 0
+  br i1 %t36, label %then.2, label %merge.2
 then.2:
   br label %exit.1
   br label %merge.2
 merge.2:
-  %t38 = load i32, ptr %kq
-  %t39 = zext i32 %t38 to i64
-  %t40 = load i32, ptr %expired_slot
-  %t41 = zext i32 %t40 to i64
-  %t42 = call i32 @closeSlot(i64 %t39, i64 %t41)
+  %t37 = load i32, ptr %poll_fd
+  %t38 = zext i32 %t37 to i64
+  %t39 = load i32, ptr %expired_slot
+  %t40 = zext i32 %t39 to i64
+  %t41 = call i32 @closeSlot(i64 %t38, i64 %t40)
   br label %loop.1
 exit.1:
-  %t43 = add i32 0, 0
-  store i32 %t43, ptr %i
+  %t42 = add i32 0, 0
+  store i32 %t42, ptr %i
   br label %loop.3
 loop.3:
-  %t44 = load i32, ptr %i
-  %t45 = load i32, ptr %n
-  %t46 = icmp slt i32 %t44, %t45
-  %t47 = zext i1 %t46 to i32
-  %t48 = icmp ne i32 %t47, 0
-  br i1 %t48, label %body.3, label %exit.3
+  %t43 = load i32, ptr %i
+  %t44 = load i32, ptr %n
+  %t45 = icmp slt i32 %t43, %t44
+  %t46 = zext i1 %t45 to i32
+  %t47 = icmp ne i32 %t46, 0
+  br i1 %t47, label %body.3, label %exit.3
 body.3:
-  %t49 = load i32, ptr @event_results
-  %t50 = load i32, ptr %i
-  %t51 = add i32 0, 2
-  %t52 = mul i32 %t50, %t51
-  %t53 = mul i32 4, %t52
-  %t54 = add i32 %t49, %t53
-  %t55 = load ptr, ptr @ohn_heap_base
-  %t56 = getelementptr i8, ptr %t55, i32 %t54
-  %t57 = load i32, ptr %t56
-  %t58 = add i32 0, 0
-  %t59 = or i32 %t57, %t58
-  store i32 %t59, ptr %ev_fd
-  %t60 = load i32, ptr @event_results
-  %t61 = load i32, ptr %i
-  %t62 = add i32 0, 2
-  %t63 = mul i32 %t61, %t62
-  %t64 = add i32 0, 1
-  %t65 = add i32 %t63, %t64
-  %t66 = mul i32 4, %t65
-  %t67 = add i32 %t60, %t66
-  %t68 = load ptr, ptr @ohn_heap_base
-  %t69 = getelementptr i8, ptr %t68, i32 %t67
-  %t70 = load i32, ptr %t69
-  %t71 = add i32 0, 0
-  %t72 = or i32 %t70, %t71
-  store i32 %t72, ptr %ev_filter
-  %t73 = load i32, ptr %ev_fd
-  %t74 = trunc i64 %listen_fd to i32
-  %t75 = icmp eq i32 %t73, %t74
-  %t76 = zext i1 %t75 to i32
-  %t77 = icmp ne i32 %t76, 0
-  br i1 %t77, label %then.4, label %else.4
+  %t48 = load i32, ptr @event_results
+  %t49 = load i32, ptr %i
+  %t50 = add i32 0, 2
+  %t51 = mul i32 %t49, %t50
+  %t52 = mul i32 4, %t51
+  %t53 = add i32 %t48, %t52
+  %t54 = load ptr, ptr @ohn_heap_base
+  %t55 = getelementptr i8, ptr %t54, i32 %t53
+  %t56 = load i32, ptr %t55
+  %t57 = add i32 0, 0
+  %t58 = or i32 %t56, %t57
+  store i32 %t58, ptr %ev_fd
+  %t59 = load i32, ptr @event_results
+  %t60 = load i32, ptr %i
+  %t61 = add i32 0, 2
+  %t62 = mul i32 %t60, %t61
+  %t63 = add i32 0, 1
+  %t64 = add i32 %t62, %t63
+  %t65 = mul i32 4, %t64
+  %t66 = add i32 %t59, %t65
+  %t67 = load ptr, ptr @ohn_heap_base
+  %t68 = getelementptr i8, ptr %t67, i32 %t66
+  %t69 = load i32, ptr %t68
+  %t70 = add i32 0, 0
+  %t71 = or i32 %t69, %t70
+  store i32 %t71, ptr %ev_events
+  %t72 = load i32, ptr %ev_fd
+  %t73 = trunc i64 %listen_fd to i32
+  %t74 = icmp eq i32 %t72, %t73
+  %t75 = zext i1 %t74 to i32
+  %t76 = icmp ne i32 %t75, 0
+  br i1 %t76, label %then.4, label %else.4
 then.4:
-  %t78 = load i32, ptr %kq
-  %t79 = zext i32 %t78 to i64
-  %t80 = trunc i64 %listen_fd to i32
-  %t81 = zext i32 %t80 to i64
-  %t82 = call i32 @acceptConnections(i64 %t79, i64 %t81)
+  %t77 = load i32, ptr %poll_fd
+  %t78 = zext i32 %t77 to i64
+  %t79 = trunc i64 %listen_fd to i32
+  %t80 = zext i32 %t79 to i64
+  %t81 = call i32 @acceptConnections(i64 %t78, i64 %t80)
   br label %merge.4
 else.4:
-  %t83 = load i32, ptr %ev_fd
-  %t84 = zext i32 %t83 to i64
-  %t85 = call i32 @findSlotByFd(i64 %t84)
-  %t86 = add i32 0, 0
-  %t87 = or i32 %t85, %t86
-  store i32 %t87, ptr %slot
-  %t88 = load i32, ptr %slot
-  %t89 = add i32 0, 0
-  %t90 = icmp sge i32 %t88, %t89
-  %t91 = zext i1 %t90 to i32
-  %t92 = icmp ne i32 %t91, 0
-  br i1 %t92, label %then.5, label %merge.5
+  %t82 = load i32, ptr %ev_fd
+  %t83 = zext i32 %t82 to i64
+  %t84 = call i32 @findSlotByFd(i64 %t83)
+  %t85 = add i32 0, 0
+  %t86 = or i32 %t84, %t85
+  store i32 %t86, ptr %slot
+  %t87 = load i32, ptr %slot
+  %t88 = add i32 0, 0
+  %t89 = icmp sge i32 %t87, %t88
+  %t90 = zext i1 %t89 to i32
+  %t91 = icmp ne i32 %t90, 0
+  br i1 %t91, label %then.5, label %merge.5
 then.5:
-  %t93 = load i32, ptr %ev_filter
-  %t94 = load i32, ptr @EVFILT_READ
-  %t95 = icmp eq i32 %t93, %t94
-  %t96 = zext i1 %t95 to i32
-  %t97 = icmp ne i32 %t96, 0
-  br i1 %t97, label %then.6, label %merge.6
+  %t92 = load i32, ptr %ev_events
+  %t93 = load i32, ptr @POLL_READ
+  %t94 = and i32 %t92, %t93
+  %t95 = add i32 0, 0
+  %t96 = icmp ne i32 %t94, %t95
+  %t97 = zext i1 %t96 to i32
+  %t98 = icmp ne i32 %t97, 0
+  br i1 %t98, label %then.6, label %merge.6
 then.6:
-  %t98 = load i32, ptr %kq
-  %t99 = zext i32 %t98 to i64
-  %t100 = load i32, ptr %slot
-  %t101 = zext i32 %t100 to i64
-  %t102 = call i32 @handleRead(i64 %t99, i64 %t101)
+  %t99 = load i32, ptr %poll_fd
+  %t100 = zext i32 %t99 to i64
+  %t101 = load i32, ptr %slot
+  %t102 = zext i32 %t101 to i64
+  %t103 = call i32 @handleRead(i64 %t100, i64 %t102)
   br label %merge.6
 merge.6:
-  %t103 = load i32, ptr %ev_filter
-  %t104 = load i32, ptr @EVFILT_WRITE
-  %t105 = icmp eq i32 %t103, %t104
-  %t106 = zext i1 %t105 to i32
-  %t107 = icmp ne i32 %t106, 0
-  br i1 %t107, label %then.7, label %merge.7
+  %t104 = load i32, ptr %ev_events
+  %t105 = load i32, ptr @POLL_WRITE
+  %t106 = and i32 %t104, %t105
+  %t107 = add i32 0, 0
+  %t108 = icmp ne i32 %t106, %t107
+  %t109 = zext i1 %t108 to i32
+  %t110 = icmp ne i32 %t109, 0
+  br i1 %t110, label %then.7, label %merge.7
 then.7:
-  %t108 = load i32, ptr %kq
-  %t109 = zext i32 %t108 to i64
-  %t110 = load i32, ptr %slot
-  %t111 = zext i32 %t110 to i64
-  %t112 = call i32 @handleWrite(i64 %t109, i64 %t111)
+  %t111 = load i32, ptr %poll_fd
+  %t112 = zext i32 %t111 to i64
+  %t113 = load i32, ptr %slot
+  %t114 = zext i32 %t113 to i64
+  %t115 = call i32 @handleWrite(i64 %t112, i64 %t114)
   br label %merge.7
 merge.7:
   br label %merge.5
 merge.5:
   br label %merge.4
 merge.4:
-  %t113 = load i32, ptr %i
-  %t114 = add i32 0, 1
-  %t115 = add i32 %t113, %t114
-  %t116 = add i32 0, 0
-  %t117 = or i32 %t115, %t116
-  store i32 %t117, ptr %i
-  br label %loop.3
-exit.3:
-  %t118 = load i32, ptr @draining_mode
+  %t116 = load i32, ptr %i
+  %t117 = add i32 0, 1
+  %t118 = add i32 %t116, %t117
   %t119 = add i32 0, 0
   %t120 = or i32 %t118, %t119
-  %t121 = add i32 0, 1
-  %t122 = icmp eq i32 %t120, %t121
-  %t123 = zext i1 %t122 to i32
-  %t124 = load i32, ptr @active_count
-  %t125 = add i32 0, 0
-  %t126 = or i32 %t124, %t125
-  %t127 = add i32 0, 0
-  %t128 = icmp eq i32 %t126, %t127
-  %t129 = zext i1 %t128 to i32
-  %t130 = and i32 %t123, %t129
-  %t131 = icmp ne i32 %t130, 0
-  br i1 %t131, label %then.8, label %merge.8
+  store i32 %t120, ptr %i
+  br label %loop.3
+exit.3:
+  %t121 = load i32, ptr @draining_mode
+  %t122 = add i32 0, 0
+  %t123 = or i32 %t121, %t122
+  %t124 = add i32 0, 1
+  %t125 = icmp eq i32 %t123, %t124
+  %t126 = zext i1 %t125 to i32
+  %t127 = load i32, ptr @active_count
+  %t128 = add i32 0, 0
+  %t129 = or i32 %t127, %t128
+  %t130 = add i32 0, 0
+  %t131 = icmp eq i32 %t129, %t130
+  %t132 = zext i1 %t131 to i32
+  %t133 = and i32 %t126, %t132
+  %t134 = icmp ne i32 %t133, 0
+  br i1 %t134, label %then.8, label %merge.8
 then.8:
-  %t132 = trunc i64 %listen_fd to i32
-  %t133 = call i64 @sys_socket_close(i32 %t132)
-  %t134 = trunc i64 %t133 to i32
-  %t135 = add i32 0, 0
-  ret i32 %t135
+  %t135 = trunc i64 %listen_fd to i32
+  %t136 = call i64 @sys_socket_close(i32 %t135)
+  %t137 = trunc i64 %t136 to i32
+  %t138 = add i32 0, 0
+  ret i32 %t138
   br label %merge.8
 merge.8:
   br label %loop.0
@@ -3062,30 +3136,58 @@ define i32 @worker_main() {
 entry:
   %PORT = alloca i32
   %listen_fd = alloca i32
-  %t0 = add i32 0, 8443
-  store i32 %t0, ptr %PORT
-  %t1 = load i32, ptr %PORT
-  %t2 = zext i32 %t1 to i64
-  %t3 = call i32 @createListenSocket(i64 %t2)
+  %t0 = call i64 @sys_is_benchmark()
+  %t1 = trunc i64 %t0 to i32
+  %t2 = add i32 0, 0
+  %t3 = or i32 %t1, %t2
   %t4 = add i32 0, 0
-  %t5 = or i32 %t3, %t4
-  store i32 %t5, ptr %listen_fd
-  %t6 = load i32, ptr %listen_fd
-  %t7 = add i32 0, 0
-  %t8 = icmp slt i32 %t6, %t7
-  %t9 = zext i1 %t8 to i32
-  %t10 = icmp ne i32 %t9, 0
-  br i1 %t10, label %then.0, label %merge.0
+  %t5 = icmp eq i32 %t3, %t4
+  %t6 = zext i1 %t5 to i32
+  %t7 = icmp ne i32 %t6, 0
+  br i1 %t7, label %then.0, label %merge.0
 then.0:
-  %t11 = add i32 0, 1
-  ret i32 %t11
+  %t8 = call i64 @sys_tls_init()
+  %t9 = trunc i64 %t8 to i32
   br label %merge.0
 merge.0:
-  %t12 = load i32, ptr %listen_fd
-  %t13 = zext i32 %t12 to i64
-  %t14 = call i32 @ohn_event_loop_run(i64 %t13)
-  %t15 = add i32 0, 0
-  ret i32 %t15
+  %t10 = add i32 0, 8443
+  store i32 %t10, ptr %PORT
+  %t11 = call i64 @sys_is_benchmark()
+  %t12 = trunc i64 %t11 to i32
+  %t13 = add i32 0, 0
+  %t14 = or i32 %t12, %t13
+  %t15 = add i32 0, 1
+  %t16 = icmp eq i32 %t14, %t15
+  %t17 = zext i1 %t16 to i32
+  %t18 = icmp ne i32 %t17, 0
+  br i1 %t18, label %then.1, label %merge.1
+then.1:
+  %t19 = add i32 0, 8080
+  store i32 %t19, ptr %PORT
+  br label %merge.1
+merge.1:
+  %t20 = load i32, ptr %PORT
+  %t21 = zext i32 %t20 to i64
+  %t22 = call i32 @createListenSocket(i64 %t21)
+  %t23 = add i32 0, 0
+  %t24 = or i32 %t22, %t23
+  store i32 %t24, ptr %listen_fd
+  %t25 = load i32, ptr %listen_fd
+  %t26 = add i32 0, 0
+  %t27 = icmp slt i32 %t25, %t26
+  %t28 = zext i1 %t27 to i32
+  %t29 = icmp ne i32 %t28, 0
+  br i1 %t29, label %then.2, label %merge.2
+then.2:
+  %t30 = add i32 0, 1
+  ret i32 %t30
+  br label %merge.2
+merge.2:
+  %t31 = load i32, ptr %listen_fd
+  %t32 = zext i32 %t31 to i64
+  %t33 = call i32 @ohn_event_loop_run(i64 %t32)
+  %t34 = add i32 0, 0
+  ret i32 %t34
   ret i32 0
 }
 
@@ -3147,12 +3249,14 @@ exit.0:
 declare i64 @sys_fill_response(i32, i32)
 declare i64 @sys_atomic_add()
 declare i64 @sys_atomic_cmpxchg(i32, i32, i32)
-declare i64 @sys_kqueue_create()
-declare i64 @sys_kqueue_register(i32, i32, i32, i32)
-declare i64 @sys_kqueue_wait(i32, i32, i32, i32)
+declare i64 @sys_poll_create()
+declare i64 @sys_poll_add(i32, i32, i32)
+declare i64 @sys_poll_mod(i32, i32, i32)
+declare i64 @sys_poll_del(i32, i32)
+declare i64 @sys_poll_wait(i32, i32, i32, i32)
 declare i64 @sys_socket_accept(i32)
-declare i64 @sys_socket_read()
-declare i64 @sys_socket_write()
+declare i64 @sys_socket_read(i32, i32, i32)
+declare i64 @sys_socket_write(i32, i32, i32)
 declare i64 @sys_fill_http_response()
 declare i64 @sys_time_sec()
 declare i64 @sys_tls_connect(i32, i32, i32, i32)
@@ -3169,4 +3273,5 @@ declare i64 @sys_socket_bind(i32, i32)
 declare i64 @sys_socket_listen(i32, i32)
 declare i64 @sys_socket_close(i32)
 declare i64 @sys_tls_init()
+declare i64 @sys_is_benchmark()
 declare i64 @fork()

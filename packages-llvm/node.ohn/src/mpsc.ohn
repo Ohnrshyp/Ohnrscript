@@ -8,7 +8,7 @@
 //
 // Architecture: intra-process only.
 // Each forked worker has its own private MPSC queue. Background threads within
-// that worker push into it; the worker's main event loop (kqueue/epoll) pops from it.
+// that worker push into it; the worker's main event loop pops from it.
 // Cross-worker coordination is handled at the kernel level by SO_REUSEPORT.
 
 let MPSC_CAPACITY = 16384; // Power of 2 for fast modulo

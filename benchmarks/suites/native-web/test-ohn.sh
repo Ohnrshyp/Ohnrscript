@@ -5,9 +5,9 @@ echo "======================================"
 echo "    OHNRSCRIPT (Cleanroom Test)       "
 echo "======================================"
 
-CMD="../../../packages-llvm/node.ohn/dist/node-bench.ohn"
+CMD="../../../packages-llvm/node.ohn/dist/node.ohn"
 
-$CMD &
+OHN_BENCHMARK=1 $CMD &
 PID=$!
 START=$(python3 -c 'import time; print(int(time.time() * 1000))')
 while true; do
@@ -20,7 +20,7 @@ done
 kill -9 $PID
 sleep 2
 
-/usr/bin/time -l $CMD &
+OHN_BENCHMARK=1 /usr/bin/time -l $CMD &
 PID=$!
 sleep 2
 wrk -t12 -c400 -d10s http://127.0.0.1:8080/

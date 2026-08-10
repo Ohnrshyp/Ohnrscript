@@ -34,7 +34,7 @@ function outbound_enqueue(slot, byte_len) {
     return 1;
 }
 
-// Called when kqueue/epoll EVFILT_WRITE fires and kernel accepts data.
+// Called when the event loop POLL_WRITE fires and kernel accepts data.
 function outbound_dequeue(slot, bytes_sent) {
     let current = queued_bytes[slot] | 0;
     let remaining = (current - bytes_sent) | 0;

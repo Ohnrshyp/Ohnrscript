@@ -92,29 +92,44 @@ int64_t sys_socket_listen(int32_t fd, int32_t backlog) {
 int64_t sys_socket_accept(int32_t fd) {
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
-    return (int64_t)accept((int)fd, (struct sockaddr*)&client_addr, &client_len);
+    int64_t ret = (int64_t)accept((int)fd, (struct sockaddr*)&client_addr, &client_len);
+    return ret;
 }
 
 extern void* ohn_resolve_ptr_safe(uint32_t base_offset, uint32_t byte_length);
-extern uint32_t read_buf;
+extern uint64_t read_buf;
 
 int64_t sys_socket_read(int32_t fd, int32_t offset_idx, int32_t length) {
     uint8_t* p = (uint8_t*)ohn_resolve_ptr_safe(read_buf + (offset_idx * 4), (uint32_t)length);
-    return (int64_t)read((int)fd, p, (size_t)length);
+    ssize_t ret = read((int)fd, p, (size_t)length);
+    return (int64_t)ret;
 }
 
 // Uses MSG_NOSIGNAL where available as an extra SIGPIPE guard.
 int64_t sys_socket_write(int32_t fd, int32_t offset_idx, int32_t length) {
     uint8_t* p = (uint8_t*)ohn_resolve_ptr_safe(read_buf + (offset_idx * 4), (uint32_t)length);
+    ssize_t ret;
 #ifdef MSG_NOSIGNAL
-    return (int64_t)send((int)fd, p, (size_t)length, MSG_NOSIGNAL);
+    ret = send((int)fd, p, (size_t)length, MSG_NOSIGNAL);
 #else
-    return (int64_t)write((int)fd, p, (size_t)length);
+    ret = write((int)fd, p, (size_t)length);
 #endif
+    return (int64_t)ret;
 }
 
 int64_t sys_socket_close(int32_t fd) {
     return (int64_t)close((int)fd);
+}
+
+void sys_exit(int32_t code) {
+    exit((int)code);
+}
+
+int64_t sys_is_benchmark(void) {
+    if (getenv("OHN_BENCHMARK") != NULL) {
+        return 1;
+    }
+    return 0;
 }
 
 /* ============================================================
@@ -122,40 +137,49 @@ int64_t sys_socket_close(int32_t fd) {
  * ============================================================ */
 #ifdef __linux__
 
-int64_t sys_epoll_create(void) {
+int64_t sys_poll_create(void) {
     return (int64_t)epoll_create1(0);
 }
 
-// Registers fd with epoll. events: EPOLLIN=1, EPOLLOUT=4, EPOLLET=0x80000000
-int64_t sys_epoll_add(int64_t epfd, int64_t fd, int64_t events) {
+// events: bitmask 1=POLL_READ, 2=POLL_WRITE
+int64_t sys_poll_add(int64_t pfd, int64_t fd, int64_t events) {
     struct epoll_event ev;
     memset(&ev, 0, sizeof(ev));
-    ev.events   = (uint32_t)events;
-    ev.data.fd  = (int)fd;
-    return (int64_t)epoll_ctl((int)epfd, EPOLL_CTL_ADD, (int)fd, &ev);
+    ev.events = 0;
+    if (events & 1) ev.events |= EPOLLIN;
+    if (events & 2) ev.events |= EPOLLOUT;
+    ev.data.fd = (int)fd;
+    return (int64_t)epoll_ctl((int)pfd, EPOLL_CTL_ADD, (int)fd, &ev);
 }
 
-int64_t sys_epoll_mod(int64_t epfd, int64_t fd, int64_t events) {
+int64_t sys_poll_mod(int64_t pfd, int64_t fd, int64_t events) {
     struct epoll_event ev;
     memset(&ev, 0, sizeof(ev));
-    ev.events   = (uint32_t)events;
-    ev.data.fd  = (int)fd;
-    return (int64_t)epoll_ctl((int)epfd, EPOLL_CTL_MOD, (int)fd, &ev);
+    ev.events = 0;
+    if (events & 1) ev.events |= EPOLLIN;
+    if (events & 2) ev.events |= EPOLLOUT;
+    ev.data.fd = (int)fd;
+    return (int64_t)epoll_ctl((int)pfd, EPOLL_CTL_MOD, (int)fd, &ev);
 }
 
-int64_t sys_epoll_del(int64_t epfd, int64_t fd) {
-    return (int64_t)epoll_ctl((int)epfd, EPOLL_CTL_DEL, (int)fd, NULL);
+int64_t sys_poll_del(int64_t pfd, int64_t fd) {
+    return (int64_t)epoll_ctl((int)pfd, EPOLL_CTL_DEL, (int)fd, NULL);
 }
+
+extern uint64_t event_results;
 
 // Waits for events. Writes results as flat [fd, events, fd, events ...] i32 pairs.
-// Returns number of events. max_events is the array capacity.
-int64_t sys_epoll_wait(int64_t epfd, int64_t out_buf_ptr, int64_t max_events, int64_t timeout_ms) {
+int64_t sys_poll_wait(int64_t pfd, int64_t out_buf_ptr, int64_t max_events, int64_t timeout_ms) {
     struct epoll_event events[max_events];
-    int n = epoll_wait((int)epfd, events, (int)max_events, (int)timeout_ms);
-    int32_t* out = (int32_t*)(uintptr_t)out_buf_ptr;
+    int n = epoll_wait((int)pfd, events, (int)max_events, (int)timeout_ms);
+    int32_t* out = (int32_t*)ohn_resolve_ptr_safe(event_results, max_events * 8);
     for (int i = 0; i < n; i++) {
-        out[i * 2]     = events[i].data.fd;
-        out[i * 2 + 1] = (int32_t)events[i].events;
+        out[i * 2] = events[i].data.fd;
+        int32_t type = 0;
+        // Map normal reads, errors, and hangups to POLL_READ so the loop reads and gracefully closes them
+        if (events[i].events & (EPOLLIN | EPOLLERR | EPOLLHUP)) type |= 1; 
+        if (events[i].events & EPOLLOUT) type |= 2; 
+        out[i * 2 + 1] = type;
     }
     return (int64_t)n;
 }
@@ -182,33 +206,66 @@ int64_t sys_eventfd_drain(int64_t efd) {
  * ============================================================ */
 #ifdef __APPLE__
 
-int64_t sys_kqueue_create(void) {
+int64_t sys_poll_create(void) {
     return (int64_t)kqueue();
 }
 
-// Registers an EVFILT_READ or EVFILT_WRITE filter for fd.
-// filter: EVFILT_READ=-1, EVFILT_WRITE=-2
-// flags:  EV_ADD=1, EV_DELETE=2, EV_ENABLE=4, EV_DISABLE=8
-int64_t sys_kqueue_register(int32_t kq, int32_t fd, int32_t filter, int32_t flags) {
+int64_t sys_poll_add(int64_t pfd, int64_t fd, int64_t events) {
     struct kevent ev;
-    EV_SET(&ev, (uintptr_t)fd, (short)filter, (uint16_t)flags, 0, 0, NULL);
-    return (int64_t)kevent((int)kq, &ev, 1, NULL, 0, NULL);
+    if (events & 1) { // POLL_READ
+        EV_SET(&ev, (uintptr_t)fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, NULL);
+        kevent((int)pfd, &ev, 1, NULL, 0, NULL);
+    }
+    if (events & 2) { // POLL_WRITE
+        EV_SET(&ev, (uintptr_t)fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, NULL);
+        kevent((int)pfd, &ev, 1, NULL, 0, NULL);
+    }
+    return 0;
 }
 
-extern uint32_t event_results;
+int64_t sys_poll_mod(int64_t pfd, int64_t fd, int64_t events) {
+    struct kevent ev;
+    if (events & 1) { // POLL_READ
+        EV_SET(&ev, (uintptr_t)fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, NULL);
+    } else {
+        EV_SET(&ev, (uintptr_t)fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    }
+    kevent((int)pfd, &ev, 1, NULL, 0, NULL);
 
-// Waits for events. Writes results as flat [fd, filter, fd, filter ...] i32 pairs.
-int64_t sys_kqueue_wait(int32_t kq, int32_t dummy_ptr, int32_t max_events, int32_t timeout_ms) {
+    if (events & 2) { // POLL_WRITE
+        EV_SET(&ev, (uintptr_t)fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, NULL);
+    } else {
+        EV_SET(&ev, (uintptr_t)fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+    }
+    kevent((int)pfd, &ev, 1, NULL, 0, NULL);
+    return 0;
+}
+
+int64_t sys_poll_del(int64_t pfd, int64_t fd) {
+    struct kevent ev;
+    EV_SET(&ev, (uintptr_t)fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    kevent((int)pfd, &ev, 1, NULL, 0, NULL);
+    EV_SET(&ev, (uintptr_t)fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+    kevent((int)pfd, &ev, 1, NULL, 0, NULL);
+    return 0;
+}
+
+extern uint64_t event_results;
+
+// Waits for events. Writes results as flat [fd, events, fd, events ...] i32 pairs.
+int64_t sys_poll_wait(int32_t pfd, int32_t dummy_ptr, int32_t max_events, int32_t timeout_ms) {
     struct kevent events[max_events];
     struct timespec ts;
     ts.tv_sec  = timeout_ms / 1000;
     ts.tv_nsec = (timeout_ms % 1000) * 1000000;
-    int n = kevent((int)kq, NULL, 0, events, (int)max_events, timeout_ms >= 0 ? &ts : NULL);
+    int n = kevent((int)pfd, NULL, 0, events, (int)max_events, timeout_ms >= 0 ? &ts : NULL);
     int32_t* out = (int32_t*)ohn_resolve_ptr_safe(event_results, max_events * 8);
     for (int i = 0; i < n; i++) {
-        out[i * 2]     = (int32_t)events[i].ident;
-        out[i * 2 + 1] = (int32_t)events[i].filter;
-        fprintf(stderr, "[KQUEUE] Woke up fd=%d filter=%d\n", out[i*2], out[i*2+1]);
+        out[i * 2] = (int32_t)events[i].ident;
+        int32_t type = 0;
+        if (events[i].filter == EVFILT_READ) type = 1; // POLL_READ
+        else if (events[i].filter == EVFILT_WRITE) type = 2; // POLL_WRITE
+        out[i * 2 + 1] = type;
     }
     return (int64_t)n;
 }
@@ -264,21 +321,29 @@ int64_t sys_shared_free(int64_t ptr, int64_t size) {
 /* ============================================================
  * 7. STRING BYPASS (For missing string literal parser)
  * ============================================================ */
-void sys_fill_response(int32_t offset_idx, int32_t response_type) {
+int32_t sys_fill_response(int32_t offset_idx, int32_t response_type) {
     uint8_t* p = (uint8_t*)ohn_resolve_ptr_safe(read_buf + (offset_idx * 4), 1024);
-    fprintf(stderr, "[HTTP] Filling response %d for offset %d\n", response_type, offset_idx);
     
     if (response_type == 2001) { // ROOT
-        const char* resp = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, World!";
-        memcpy(p, resp, 75);
+        const char* resp = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: keep-alive\r\n\r\nHello, World!";
+        size_t len = strlen(resp);
+        memcpy(p, resp, len);
+        return (int32_t)len;
     } else if (response_type == 2002) { // USERS
         const char* resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16\r\n\r\n{\"users\":[\"db\"]}";
-        memcpy(p, resp, 86);
+        size_t len = strlen(resp);
+        memcpy(p, resp, len);
+        return (int32_t)len;
     } else if (response_type == 404) {
         const char* resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found";
-        memcpy(p, resp, 54);
+        size_t len = strlen(resp);
+        memcpy(p, resp, len);
+        return (int32_t)len;
     } else if (response_type == 405) {
         const char* resp = "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
+        size_t len = strlen(resp);
+        memcpy(p, resp, len);
+        return (int32_t)len;
         memcpy(p, resp, 55);
     } else {
         const char* resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
@@ -349,7 +414,9 @@ int64_t sys_atomic_cmpxchg(int64_t offset_bytes, int64_t expected, int64_t repla
  * 10. TLS (mbedTLS) ZERO-ALLOCATION BRIDGE
  * ============================================================ */
 #include <sys/types.h>
+#if defined(__APPLE__) || defined(__FreeBSD__)
 #include <sys/sysctl.h>
+#endif
 #include <sys/mman.h>
 
 #define MBEDTLS_ERR_NET_RECV_FAILED -0x004C
@@ -357,7 +424,6 @@ int64_t sys_atomic_cmpxchg(int64_t offset_bytes, int64_t expected, int64_t repla
 
 #include "mbedtls/ssl.h"
 #include "mbedtls/error.h"
-#include "mbedtls/platform_util.h"
 #include "mbedtls/memory_buffer_alloc.h"
 #include "mbedtls/psa_util.h"
 #include "psa/crypto.h"

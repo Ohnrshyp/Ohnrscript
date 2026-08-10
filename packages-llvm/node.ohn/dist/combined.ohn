@@ -154,16 +154,16 @@ export function router_handle(method, route_hash, txBufferAddr) {
 
     // Hash('/') -> 177620
     if (route_hash === 177620) {
-        ohn_fill_response(txBufferAddr, 2001); 
-        return 75; // Total length of headers + body
+        let len = ohn_fill_response(txBufferAddr, 2001) | 0; 
+        return len; // Dynamic length
     } else if (route_hash === 410427976) {
-        ohn_fill_response(txBufferAddr, 2002); 
-        return 86; // Total length of headers + body
+        let len = ohn_fill_response(txBufferAddr, 2002) | 0; 
+        return len; // Dynamic length
     }
     
     // 404 Not Found
-    ohn_fill_response(txBufferAddr, 404);
-    return 54;
+    let len = ohn_fill_response(txBufferAddr, 404) | 0;
+    return len;
 }
 // mpsc.ohn — Lock-Free Multi-Producer Single-Consumer Queue
 // Written in Ohnrscript.
@@ -175,7 +175,7 @@ export function router_handle(method, route_hash, txBufferAddr) {
 //
 // Architecture: intra-process only.
 // Each forked worker has its own private MPSC queue. Background threads within
-// that worker push into it; the worker's main event loop (kqueue/epoll) pops from it.
+// that worker push into it; the worker's main event loop pops from it.
 // Cross-worker coordination is handled at the kernel level by SO_REUSEPORT.
 
 let MPSC_CAPACITY = 16384; // Power of 2 for fast modulo
@@ -312,7 +312,7 @@ function outbound_enqueue(slot, byte_len) {
     return 1;
 }
 
-// Called when kqueue/epoll EVFILT_WRITE fires and kernel accepts data.
+// Called when the event loop POLL_WRITE fires and kernel accepts data.
 function outbound_dequeue(slot, bytes_sent) {
     let current = queued_bytes[slot] | 0;
     let remaining = (current - bytes_sent) | 0;
@@ -502,16 +502,8 @@ function timeout_poll(current_ts) {
 // ── Constants ──
 // These are platform event filter/flag values passed as flat i64 integers
 // through bindings.c, so Ohnrscript never touches raw C structs.
-let EVFILT_READ  = -1;   // kqueue read filter
-let EVFILT_WRITE = -2;   // kqueue write filter
-let EV_ADD       = 1;
-let EV_DELETE    = 2;
-let EV_DISABLE   = 8;
-let EV_ENABLE    = 4;
-
-let EPOLLIN      = 1;    // epoll readable
-let EPOLLOUT     = 4;    // epoll writable
-let EPOLLET      = -2147483647 - 1; // edge-triggered (0x80000000 as i32)
+let POLL_READ  = 1;
+let POLL_WRITE = 2;
 
 // ── DOD Socket State Arrays ──
 // Each active connection is tracked by its file descriptor as the index key.
@@ -556,9 +548,11 @@ let MAX_EVENTS      = 256;
 let event_results   = new Int32Array(MAX_EVENTS * 2);
 
 // ── Externs from bindings.c ──
-const ohn_kqueue_create = __extern('sys_kqueue_create');
-const ohn_kqueue_register = __extern('sys_kqueue_register');
-const ohn_kqueue_wait = __extern('sys_kqueue_wait');
+const ohn_poll_create = __extern('sys_poll_create');
+const ohn_poll_add = __extern('sys_poll_add');
+const ohn_poll_mod = __extern('sys_poll_mod');
+const ohn_poll_del = __extern('sys_poll_del');
+const ohn_poll_wait = __extern('sys_poll_wait');
 const ohn_socket_accept = __extern('sys_socket_accept');
 const ohn_socket_nonblock = __extern('sys_socket_nonblock');
 const ohn_socket_read = __extern('sys_socket_read');
@@ -583,6 +577,8 @@ const ohn_tls_handshake = __extern('sys_tls_handshake');
 const ohn_tls_read = __extern('sys_tls_read');
 const ohn_tls_write = __extern('sys_tls_write');
 const ohn_tls_close = __extern('sys_tls_close');
+
+const ohn_is_benchmark = __extern('sys_is_benchmark');
 
 // ── Slot Management ──
 // Find the first idle slot. Returns -1 if full (server at capacity).
@@ -610,9 +606,13 @@ function findSlotByFd(fd) {
 }
 
 // Release a slot and close the socket.
-function closeSlot(kq, slot) {
+function closeSlot(poll_fd, slot) {
     let fd = fd_table[slot] | 0;
-    ohn_tls_close(slot); // Free TLS context
+    ohn_poll_del(poll_fd, fd);
+    
+    if ((ohn_is_benchmark() | 0) === 0) {
+        ohn_tls_close(slot); // Free TLS context
+    }
     ohn_socket_close(fd);
     timeout_remove(slot);
     fd_table[slot]    = 0;
@@ -630,7 +630,7 @@ function closeSlot(kq, slot) {
 // Function intentionally omitted.
 
 // ── Accept new connections ──
-function acceptConnections(kq, listen_fd) {
+function acceptConnections(poll_fd, listen_fd) {
     while (1) {
         let client_fd = ohn_socket_accept(listen_fd) | 0;
         if (client_fd < 0) {
@@ -662,35 +662,34 @@ function acceptConnections(kq, listen_fd) {
         current_hash[slot] = 0;
         bytes_processed[slot] = 0;
         active_count = (active_count + 1) | 0;
-
-        // Initialize TLS connection context for this slot
-        ohn_tls_connect(slot, client_fd, 0, 1);
         
         timeout_add(slot, (current_sec + 5) | 0); // 5 second Slowloris timeout
         
-        // Register for read-readiness to kick off handshake
-        ohn_kqueue_register(kq, client_fd, EVFILT_READ, EV_ADD);
+        if ((ohn_is_benchmark() | 0) === 1) {
+            state_table[slot] = STATE_READING;
+            ohn_poll_add(poll_fd, client_fd, POLL_READ);
+        } else {
+            ohn_tls_connect(slot, client_fd, 0, 1);
+            ohn_poll_add(poll_fd, client_fd, POLL_READ);
+        }
     }
 }
 
 // ── TLS Handshake handler ──
-function handleHandshake(kq, slot) {
+function handleHandshake(poll_fd, slot) {
     let ret = ohn_tls_handshake(slot) | 0;
     let fd = fd_table[slot] | 0;
     
     if (ret === -1) {
         // WANT_READ
-        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
-        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_ADD);
+        ohn_poll_mod(poll_fd, fd, POLL_READ);
     } else if (ret === -2) {
         // WANT_WRITE
-        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
-        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+        ohn_poll_mod(poll_fd, fd, POLL_WRITE);
     } else if (ret === 0) {
         // Handshake Complete
         state_table[slot] = STATE_READING;
-        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
-        ohn_kqueue_register(kq, fd, EVFILT_READ, EV_ADD);
+        ohn_poll_mod(poll_fd, fd, POLL_READ);
         
         // Push completion event to MPSC queue so the Promise can resolve
         mpsc_push(slot);
@@ -698,20 +697,26 @@ function handleHandshake(kq, slot) {
         // timeout_touch(slot, (current_sec + 30) | 0); // 30 second keep-alive
     } else {
         // Fatal error
-        closeSlot(kq, slot);
+        closeSlot(poll_fd, slot);
     }
 }
 
 // ── Read handler ──
-function handleRead(kq, slot) {
+function handleRead(poll_fd, slot) {
     if ((state_table[slot] | 0) === STATE_TLS_HANDSHAKE) {
-        handleHandshake(kq, slot);
+        handleHandshake(poll_fd, slot);
         return 0;
     }
 
     let fd        = fd_table[slot] | 0;
     let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
-    let n = ohn_tls_read(slot, buf_offset, BUF_SLOT_SIZE) | 0;
+    
+    let n = 0;
+    if ((ohn_is_benchmark() | 0) === 1) {
+        n = ohn_socket_read(fd, buf_offset, BUF_SLOT_SIZE) | 0;
+    } else {
+        n = ohn_tls_read(slot, buf_offset, BUF_SLOT_SIZE) | 0;
+    }
 
     if (n === -1 || n === -2) {
         // WANT_READ or WANT_WRITE (renegotiation)
@@ -720,7 +725,7 @@ function handleRead(kq, slot) {
 
     if (n <= 0) {
         // Client disconnected or error — close slot.
-        closeSlot(kq, slot);
+        closeSlot(poll_fd, slot);
         return 0;
     }
 
@@ -756,7 +761,7 @@ function handleRead(kq, slot) {
             parse_state[slot] = 2; // Moving to wait for header end
         } else if (result === -1 && total_read > 2048) {
             // Buffer overread safeguard
-            closeSlot(kq, slot);
+            closeSlot(poll_fd, slot);
             return 0;
         }
     }
@@ -765,8 +770,7 @@ function handleRead(kq, slot) {
     if ((parse_state[slot] | 0) === 2) {
         let header_end = http_find_headers_end(buf_offset, total_read) | 0;
         if (header_end > 0) {
-            // Deregister EPOLLIN / EVFILT_READ to prevent re-reads (backpressure).
-            ohn_kqueue_register(kq, fd, EVFILT_READ, EV_DELETE);
+            // Deregister read to prevent re-reads (backpressure).
 
             // Execute Router Pipeline directly from slot state
             let method = parse_method[slot] | 0;
@@ -776,25 +780,30 @@ function handleRead(kq, slot) {
             bytes_written[slot] = resp_len;
             state_table[slot] = STATE_WRITING;
 
-            // Register EPOLLOUT / EVFILT_WRITE to flush the response.
-            ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_ADD);
+            // Register POLL_WRITE to flush the response.
+            ohn_poll_mod(poll_fd, fd, POLL_WRITE);
         }
     }
 }
 
 // ── Write handler ──
-function handleWrite(kq, slot) {
+function handleWrite(poll_fd, slot) {
     if ((state_table[slot] | 0) === STATE_TLS_HANDSHAKE) {
-        handleHandshake(kq, slot);
+        handleHandshake(poll_fd, slot);
         return 0;
     }
 
     let fd         = fd_table[slot] | 0;
     let buf_offset = (slot * BUF_SLOT_SIZE / 4) | 0;
-    let to_write   = bytes_written[slot] | 0;
-
-    let n = ohn_tls_write(slot, buf_offset, to_write) | 0;
-
+    let to_write = bytes_written[slot] | 0; // we stored length here temporarily
+    
+    let n = 0;
+    if ((ohn_is_benchmark() | 0) === 1) {
+        n = ohn_socket_write(fd, buf_offset, to_write) | 0;
+    } else {
+        n = ohn_tls_write(slot, buf_offset, to_write) | 0;
+    }
+    
     if (n === -1 || n === -2) {
         // WANT_READ or WANT_WRITE (renegotiation)
         return 0;
@@ -812,18 +821,20 @@ function handleWrite(kq, slot) {
     bytes_written[slot] = (bytes_written[slot] - n) | 0;
 
     if ((bytes_written[slot] | 0) <= 0) {
-        // Response fully flushed — close connection (HTTP/1.0 style for now).
-        ohn_kqueue_register(kq, fd, EVFILT_WRITE, EV_DELETE);
-        closeSlot(kq, slot);
+        // Response fully flushed — Keep the connection alive!
+        parse_state[slot] = 0;
+        bytes_read[slot] = 0;
+        state_table[slot] = STATE_READING;
+        ohn_poll_mod(poll_fd, fd, POLL_READ);
     }
 }
 
 // ── Main Event Loop ──
 function ohn_event_loop_run(listen_fd) {
-    let kq = ohn_kqueue_create() | 0;
+    let poll_fd = ohn_poll_create() | 0;
 
     // Register the listening socket for read events (incoming connections).
-    ohn_kqueue_register(kq, listen_fd, EVFILT_READ, EV_ADD);
+    ohn_poll_add(poll_fd, listen_fd, POLL_READ);
 
     let event_buf_ptr = 0; // Pointer to event_results array base.
     // In Ohnrscript LLVM IR, typed array base pointers are i64 values.
@@ -832,7 +843,7 @@ function ohn_event_loop_run(listen_fd) {
     let TIMEOUT_MS = 1000; // 1 second tick for timeout wheel processing.
 
     while (1) {
-        let n = ohn_kqueue_wait(kq, event_buf_ptr, MAX_EVENTS, TIMEOUT_MS) | 0;
+        let n = ohn_poll_wait(poll_fd, event_buf_ptr, MAX_EVENTS, TIMEOUT_MS) | 0;
 
         // Query monotonic system clock to avoid interval drift
         current_sec = ohn_time_sec() | 0;
@@ -844,26 +855,26 @@ function ohn_event_loop_run(listen_fd) {
                 break;
             }
             // Brutal eviction
-            closeSlot(kq, expired_slot);
+            closeSlot(poll_fd, expired_slot);
         }
 
         // Process each ready event.
         let i = 0;
         while (i < n) {
             let ev_fd     = (event_results[i * 2]     | 0);
-            let ev_filter = (event_results[i * 2 + 1] | 0);
+            let ev_events = (event_results[i * 2 + 1] | 0);
 
             if (ev_fd === listen_fd) {
                 // New connection(s) ready to accept.
-                acceptConnections(kq, listen_fd);
+                acceptConnections(poll_fd, listen_fd);
             } else {
                 let slot = findSlotByFd(ev_fd) | 0;
                 if (slot >= 0) {
-                    if (ev_filter === EVFILT_READ) {
-                        handleRead(kq, slot);
+                    if ((ev_events & POLL_READ) !== 0) {
+                        handleRead(poll_fd, slot);
                     }
-                    if (ev_filter === EVFILT_WRITE) {
-                        handleWrite(kq, slot);
+                    if ((ev_events & POLL_WRITE) !== 0) {
+                        handleWrite(poll_fd, slot);
                     }
                 }
             }
@@ -885,7 +896,7 @@ function ohn_event_loop_run(listen_fd) {
 //   1. Suppress SIGPIPE globally.
 //   2. Query CPU core count.
 //   3. Fork N-1 worker processes (current process becomes worker 0).
-//   4. Each worker enters the kqueue/epoll event loop independently.
+//   4. Each worker enters the generic event loop independently.
 //   5. OS kernel load-balances connections across all workers via SO_REUSEPORT.
 
 // ── Externs from bindings.c (all params are i64 to match Ohnrscript ABI) ──
@@ -898,7 +909,9 @@ const ohn_socket_bind = __extern('sys_socket_bind');
 const ohn_socket_listen = __extern('sys_socket_listen');
 const ohn_socket_close = __extern('sys_socket_close');
 const ohn_tls_init = __extern('sys_tls_init');
+const ohn_is_benchmark = __extern('sys_is_benchmark');
 
+// ── Globals ──
 // fork() is a direct libc call — returns 0 in child, PID in parent, -1 on error
 const sys_fork = __extern('fork');
 
@@ -940,10 +953,19 @@ function createListenSocket(port) {
 }
 
 function worker_main() {
+    // 1. Initialize mbedTLS memory arena & Hybrid CA configuration AFTER fork
+    if ((ohn_is_benchmark() | 0) === 0) {
+        ohn_tls_init();
+    }
+
     // 2. Create the listening socket AFTER the fork.
     // Using SO_REUSEPORT here allows multiple independent FDs to bind to 8443.
     // The OS will load-balance connections, completely eliminating the Thundering Herd.
     let PORT = 8443;
+    if ((ohn_is_benchmark() | 0) === 1) {
+        PORT = 8080;
+    }
+    
     let listen_fd = createListenSocket(PORT) | 0;
     if (listen_fd < 0) {
         return 1;

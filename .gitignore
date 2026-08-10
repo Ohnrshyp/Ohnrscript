@@ -33,3 +33,5 @@ packages/**/benchmarks/bench-ohn.js
 packages/**/benchmarks/bench-zod.js
 packages/ohn-zod/benchmarks/clean-zod.js
 packages/ohn-zod/benchmarks/clean-ohn-zod.js
+packages-llvm/node.ohn/.cache/
+packages-llvm/node.ohn/compile_commands.json

@@ -34,7 +34,7 @@ export const tls = {
             sys_tls_inject_ca(slot, ca_str_ptr, ca_len);
         }
 
-        // The kqueue event loop will asynchronously drive sys_tls_handshake()
+        // The event loop will asynchronously drive sys_tls_handshake()
         // We await handshake completion by polling the lock-free MPSC queue
         return new Promise((resolve, reject) => {
             const timer = setInterval(() => {

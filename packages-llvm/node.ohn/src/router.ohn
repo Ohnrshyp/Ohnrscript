@@ -15,14 +15,14 @@ export function router_handle(method, route_hash, txBufferAddr) {
 
     // Hash('/') -> 177620
     if (route_hash === 177620) {
-        ohn_fill_response(txBufferAddr, 2001); 
-        return 75; // Total length of headers + body
+        let len = ohn_fill_response(txBufferAddr, 2001) | 0; 
+        return len; // Dynamic length
     } else if (route_hash === 410427976) {
-        ohn_fill_response(txBufferAddr, 2002); 
-        return 86; // Total length of headers + body
+        let len = ohn_fill_response(txBufferAddr, 2002) | 0; 
+        return len; // Dynamic length
     }
     
     // 404 Not Found
-    ohn_fill_response(txBufferAddr, 404);
-    return 54;
+    let len = ohn_fill_response(txBufferAddr, 404) | 0;
+    return len;
 }

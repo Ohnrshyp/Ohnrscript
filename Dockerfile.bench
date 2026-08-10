@@ -1,0 +1,34 @@
+# ── Stage 1: Build Environment ───────────────────────────────
+FROM node:20-bookworm AS builder
+
+# Install LLVM 16 toolchain and clang, plus python3-jsonschema for mbedTLS
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang-16 \
+    lld-16 \
+    llvm-16 \
+    python3 \
+    python3-jsonschema \
+    python3-jinja2 \
+    && ln -sf /usr/bin/clang-16 /usr/bin/clang \
+    && ln -sf /usr/bin/ld.lld-16 /usr/bin/ld.lld \
+    && ln -sf /usr/bin/llvm-as-16 /usr/bin/llvm-as \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/ohnrscript
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY . .
+
+# Clear any pre-compiled macOS mbedTLS libraries so they rebuild for Linux
+RUN rm -f packages-llvm/node.ohn/vendor/mbedtls/library/*.a && \
+    rm -f packages-llvm/node.ohn/vendor/mbedtls/library/*.o
+
+# Build the node.ohn server (Linux native / epoll)
+RUN cd packages-llvm/node.ohn && ./build.sh
+
+# ── Stage 2: Minimal Runtime ─────────────────────────────────
+FROM debian:bookworm-slim
+WORKDIR /app
+COPY --from=builder /usr/src/ohnrscript/packages-llvm/node.ohn/dist/node.ohn .
+EXPOSE 8080
+CMD ["./node.ohn"]

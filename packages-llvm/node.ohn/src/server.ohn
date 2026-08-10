@@ -5,7 +5,7 @@
 //   1. Suppress SIGPIPE globally.
 //   2. Query CPU core count.
 //   3. Fork N-1 worker processes (current process becomes worker 0).
-//   4. Each worker enters the kqueue/epoll event loop independently.
+//   4. Each worker enters the generic event loop independently.
 //   5. OS kernel load-balances connections across all workers via SO_REUSEPORT.
 
 // ── Externs from bindings.c (all params are i64 to match Ohnrscript ABI) ──
@@ -18,7 +18,9 @@ const ohn_socket_bind = __extern('sys_socket_bind');
 const ohn_socket_listen = __extern('sys_socket_listen');
 const ohn_socket_close = __extern('sys_socket_close');
 const ohn_tls_init = __extern('sys_tls_init');
+const ohn_is_benchmark = __extern('sys_is_benchmark');
 
+// ── Globals ──
 // fork() is a direct libc call — returns 0 in child, PID in parent, -1 on error
 const sys_fork = __extern('fork');
 
@@ -60,10 +62,19 @@ function createListenSocket(port) {
 }
 
 function worker_main() {
+    // 1. Initialize mbedTLS memory arena & Hybrid CA configuration AFTER fork
+    if ((ohn_is_benchmark() | 0) === 0) {
+        ohn_tls_init();
+    }
+
     // 2. Create the listening socket AFTER the fork.
     // Using SO_REUSEPORT here allows multiple independent FDs to bind to 8443.
     // The OS will load-balance connections, completely eliminating the Thundering Herd.
     let PORT = 8443;
+    if ((ohn_is_benchmark() | 0) === 1) {
+        PORT = 8080;
+    }
+    
     let listen_fd = createListenSocket(PORT) | 0;
     if (listen_fd < 0) {
         return 1;

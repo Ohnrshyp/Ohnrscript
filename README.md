@@ -66,8 +66,6 @@ git clone https://github.com/Ohnrshyp/Ohnrscript-Language-Support.git
 cd Ohnrscript-Language-Support/lsp && npm install && npm link
 ```
 
-**Critically: Ohnrscript is NOT a JavaScript compiler.** While it borrows the ergonomic, C-style syntax of JavaScript and TypeScript, it is fundamentally incompatible with the JS runtime. **There are no dynamic objects, no prototype chains, and no garbage-collected heaps.** Memory is modeled strictly through static buffers (`Int32Array`, `Uint8Array`), contiguous Data-Oriented Design (DOD) arenas, and raw pointers. You cannot compile an npm package with Ohnrscript; you build native systems from the ground up.
-
 ---
 
 ## The Shift

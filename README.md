@@ -50,12 +50,20 @@ curl http://localhost:8080
 *See `packages-llvm/ohn-kernel/README.md` for native build instructions without Docker.*
 *Full benchmark report: `benchmarks/BENCHMARK_RESULTS.md`*
 
-### VS Code Extension
-Because Ohnrscript enforces a strict subset of JavaScript syntax and introduces custom primitives, we highly recommend installing the official VS Code extension for syntax highlighting and language support:
+### Editor Support
+Because Ohnrscript enforces a strict subset of JavaScript syntax and introduces custom primitives, we highly recommend installing official language support for syntax highlighting, IntelliSense, and LSP diagnostics.
 
-```bash
-cd .vscode-extension
-code --install-extension ohnrscript-language-support-0.1.0.vsix
+All editor tooling lives in the dedicated **[Ohnrscript Language Support](https://github.com/Ohnrshyp/Ohnrscript-Language-Support)** repository (v0.3.0):
+
+| Editor | How to Install |
+|--------|---------------|
+| **VS Code** | Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ohnrshyp.ohnrscript-language-support), or download the `.vsix` from the [latest release](https://github.com/Ohnrshyp/Ohnrscript-Language-Support/releases) |
+| **Zed** | Clone the repo, then `Cmd+Shift+P` → `zed: install dev extension` → select `editors/zed/` |
+| **Neovim / Helix / Emacs** | Clone the repo, run `cd lsp && npm install && npm link`, then configure your editor's LSP client |
+
+```sh
+git clone https://github.com/Ohnrshyp/Ohnrscript-Language-Support.git
+cd Ohnrscript-Language-Support/lsp && npm install && npm link
 ```
 
 **Critically: Ohnrscript is NOT a JavaScript compiler.** While it borrows the ergonomic, C-style syntax of JavaScript and TypeScript, it is fundamentally incompatible with the JS runtime. **There are no dynamic objects, no prototype chains, and no garbage-collected heaps.** Memory is modeled strictly through static buffers (`Int32Array`, `Uint8Array`), contiguous Data-Oriented Design (DOD) arenas, and raw pointers. You cannot compile an npm package with Ohnrscript; you build native systems from the ground up.

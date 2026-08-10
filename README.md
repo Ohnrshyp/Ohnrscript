@@ -57,7 +57,7 @@ All editor tooling lives in the dedicated **[Ohnrscript Language Support](https:
 
 | Editor | How to Install |
 |--------|---------------|
-| **VS Code** | Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ohnrshyp.ohnrscript-language-support), or download the `.vsix` from the [latest release](https://github.com/Ohnrshyp/Ohnrscript-Language-Support/releases) |
+| **VS Code** | Download the `.vsix` from the [latest release](https://github.com/Ohnrshyp/Ohnrscript-Language-Support/releases) and install via `Extensions: Install from VSIX...` |
 | **Zed** | Clone the repo, then `Cmd+Shift+P` → `zed: install dev extension` → select `editors/zed/` |
 | **Neovim / Helix / Emacs** | Clone the repo, run `cd lsp && npm install && npm link`, then configure your editor's LSP client |
 

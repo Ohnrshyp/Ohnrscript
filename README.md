@@ -14,7 +14,7 @@
   <a href="https://ohnrshyp.com">
     <img src="https://img.shields.io/badge/docs-ohnrshyp.com-blue.svg?style=flat-square" alt="Documentation" />
   </a>
-  <img src="https://img.shields.io/badge/version-v0.8.2-blue.svg?style=flat-square" alt="Version 0.8.2" />
+  <img src="https://img.shields.io/badge/version-v0.8.3-blue.svg?style=flat-square" alt="Version 0.8.3" />
   <img src="https://img.shields.io/badge/language-Javascript%20%7C%20LLVM-orange.svg?style=flat-square" alt="Language JS/LLVM" />
   <img src="https://img.shields.io/badge/status-Stable-success.svg?style=flat-square" alt="Status Stable" />
 </p>
